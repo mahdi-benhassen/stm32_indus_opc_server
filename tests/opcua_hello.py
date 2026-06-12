@@ -18,17 +18,19 @@ import time
 def build_hello() -> bytes:
     """Build a minimal OPC UA Hello message per Part 6, Section 7.1.2.3.
 
-    Body:
-        protocolVersion (uint32) = 0
-        receiveBufferSize (uint32) = 65535
-        sendBufferSize (uint32) = 65535
-        maxMessageSize (uint32) = 0
-        maxChunkCount (uint32) = 0
-        endpointUrlLength (int32) = 0
-        endpointUrl (var) = ""  (empty - server is required to accept)
+    Body fields, with non-zero sizes (the spec is unclear about
+    whether 0 is permitted for maxMessageSize/maxChunkCount; many
+    servers reject it as a limit violation):
+        protocolVersion     = 0
+        receiveBufferSize   = 65535
+        sendBufferSize      = 65535
+        maxMessageSize      = 16777216 (16 MB)
+        maxChunkCount       = 64
+        endpointUrlLength   = 0
+        endpointUrl         = ""
     """
     endpoint = b""
-    body = struct.pack("<IIIII", 0, 65535, 65535, 0, 0)
+    body = struct.pack("<IIIII", 0, 65535, 65535, 16777216, 64)
     body += struct.pack("<i", len(endpoint)) + endpoint
 
     msg_size = 8 + 8 + len(body)
