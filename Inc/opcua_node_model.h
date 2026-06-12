@@ -25,7 +25,11 @@
 #ifndef OPCUA_NODE_MODEL_H_
 #define OPCUA_NODE_MODEL_H_
 
-#include "open62541.h"
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
+  #include "open62541.h"
+#else
+  #include "open62541_stub.h"
+#endif
 
 #define IO_DI_COUNT    8
 #define IO_DO_COUNT    8

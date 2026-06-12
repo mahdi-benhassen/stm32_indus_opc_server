@@ -10,10 +10,14 @@
 #include "opcua_node_model.h"
 #include "opcua_server_task.h"   /* OpcUa_Hw_* prototypes               */
 
-#include "open62541.h"
-#include "FreeRTOS.h"
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
+  #include "open62541.h"
+  #include "FreeRTOS.h"
+#endif
 
+#include <stdio.h>   /* snprintf */
 #include <string.h>
+#include <stdint.h>
 
 /* ----------------------------------------------------------------------------
  * Forward declarations of the ValueCallback read/write functions.
