@@ -91,59 +91,12 @@ jobs:
           file /tmp/opcua_server
           ls -l /tmp/opcua_server
 
-      - name: Smoke test (run for 3 seconds, verify :4840 binds)
+      - name: Smoke test (HEL/ACK handshake against :4840)
         run: |
           set -e
           /tmp/opcua_server > /tmp/opcua_server.log 2>&1 &
           SERVER_PID=$!
-
-          # Send a minimal OPC UA Hello (HEL) message and look for the
-          # Acknowledge (ACK) response.  This is a real end-to-end test
-          # of the server.  The HEL/ACK encoding follows OPC UA Part 6.
-          python3 - <<'PY'
-import socket, struct, sys, time
-hello = (
-    b"HEL\x46"                       # message type + chunk type
-    + struct.pack("<I", 8 + 4 + 4 + 4 + 4 + 4)  # message size
-    + struct.pack("<I", 0)            # secure channel id
-    + struct.pack("<I", 0x12D8)       # 4840 in network byte order
-    + struct.pack("<I", 0)            # receive buffer size
-    + struct.pack("<I", 0)            # send buffer size
-    + struct.pack("<I", 0)            # max message size
-    + struct.pack("<I", 0)            # max chunk count
-)
-
-# OPC UA Hello body
-endpoint = b"opc.tcp://127.0.0.1:4840"
-hello_body = struct.pack("<I", len(endpoint)) + endpoint
-hello = b"HEL\x46" + struct.pack("<I", 8 + 4 + 4 + 4 + 4 + 4 + 4 + len(hello_body)) \
-       + struct.pack("<I", 0) \
-       + struct.pack("<I", 0x12D8) \
-       + struct.pack("<I", 0) \
-       + struct.pack("<I", 0) \
-       + struct.pack("<I", 0) \
-       + struct.pack("<I", 0) \
-       + hello_body
-
-for i in range(25):
-    time.sleep(0.2)
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(1.0)
-        s.connect(("127.0.0.1", 4840))
-        s.sendall(hello)
-        data = s.recv(1024)
-        s.close()
-        if data[:3] == b"ACK":
-            print(f"OPC UA server on :4840 returned ACK after {(i+1)*200}ms - OK")
-            sys.exit(0)
-        else:
-            print(f"got {data[:8].hex()!r} after {(i+1)*200}ms")
-    except (ConnectionRefusedError, socket.timeout, OSError) as e:
-        pass
-print("OPC UA server did not respond on :4840 within 5s")
-sys.exit(1)
-PY
+          python3 tests/opcua_hello.py
           TEST_RC=$?
           kill $SERVER_PID 2>/dev/null || true
           wait $SERVER_PID 2>/dev/null || true
