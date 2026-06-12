@@ -18,9 +18,10 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential python3 libmbedtls-dev
+          sudo apt-get install -y build-essential python3 python3-pip libmbedtls-dev
           gcc --version
           dpkg -l | grep mbedtls
+          pip3 install --break-system-packages opcua 2>&1 | tail -5 || pip3 install opcua 2>&1 | tail -5
 
       - name: Fetch open62541 amalgamated release
         # CI uses the real amalgamation so the build validates against
