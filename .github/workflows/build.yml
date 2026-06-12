@@ -33,8 +33,9 @@ jobs:
             https://raw.githubusercontent.com/open62541/open62541/${UA_VER}/LICENSE
           ls -l third_party/open62541/
 
-      - name: Compile (syntax check on host)
+      - name: Compile (syntax + link check on host)
         run: |
+          set -e
           arm-none-eabi-gcc -c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
             -DUA_CONFIG_H_FILE='"ua_config.h"' \
             -I Inc -I third_party/open62541 \
@@ -45,7 +46,15 @@ jobs:
             -I Inc -I third_party/open62541 \
             -ffunction-sections -fdata-sections \
             Src/opcua_node_model.c -o /tmp/opcua_node_model.o
-          ls -l /tmp/*.o
+          arm-none-eabi-gcc -c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
+            -I Inc \
+            Src/cmsis_os_stubs.c -o /tmp/cmsis_os_stubs.o
+          arm-none-eabi-gcc -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
+            -nostdlib -Wl,--unresolved-symbols=ignore-all \
+            /tmp/opcua_server_task.o /tmp/opcua_node_model.o /tmp/cmsis_os_stubs.o \
+            -o /tmp/opcua_server.elf
+          arm-none-eabi-size /tmp/opcua_server.elf || true
+          ls -l /tmp/*.o /tmp/*.elf
 
       - name: Upload artifacts
         if: always()
@@ -55,3 +64,5 @@ jobs:
           path: |
             /tmp/opcua_server_task.o
             /tmp/opcua_node_model.o
+            /tmp/cmsis_os_stubs.o
+            /tmp/opcua_server.elf

@@ -12,7 +12,15 @@
 
 #include <stdint.h>
 
-#include "cmsis_os.h"   /* osThreadId_t / osMutexId_t if CMSIS-RTOS2 in use */
+/* CMSIS-RTOS2 wrappers.  In your real STM32CubeIDE project this comes
+ * from the CMSIS pack; on the CI build we stub it so the source still
+ * compiles against plain arm-none-eabi-gcc + FreeRTOS.
+ */
+#if defined(OPCUA_USE_CMSIS_OS) && (OPCUA_USE_CMSIS_OS == 1)
+  #include "cmsis_os.h"
+#else
+  #include "cmsis_os_stubs.h"
+#endif
 
 /* ----------------------------------------------------------------------------
  * Public configuration
