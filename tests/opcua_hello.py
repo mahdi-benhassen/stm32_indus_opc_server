@@ -18,24 +18,20 @@ import time
 def build_hello() -> bytes:
     """Build a minimal OPC UA Hello message per Part 6, Section 7.1.2.3.
 
-    Message layout:
-      HELF header:  type(3)='HEL' + chunk(1)='F' + size(4) + secChanId(4)
-      SequenceHeader: seqNumber(4) + requestId(4)
-      Body:
-        protocolVersion (uint32)
-        receiveBufferSize (uint32)
-        sendBufferSize (uint32)
-        maxMessageSize (uint32)
-        maxChunkCount (uint32)
-        endpointUrlLength (int32, signed!)
-        endpointUrl (var)
+    Body:
+        protocolVersion (uint32) = 0
+        receiveBufferSize (uint32) = 65535
+        sendBufferSize (uint32) = 65535
+        maxMessageSize (uint32) = 0
+        maxChunkCount (uint32) = 0
+        endpointUrlLength (int32) = 0
+        endpointUrl (var) = ""  (empty - server is required to accept)
     """
-    endpoint = b"opc.tcp://127.0.0.1:4840"
+    endpoint = b""
     body = struct.pack("<IIIII", 0, 65535, 65535, 0, 0)
-    # Use int32 ('i') for endpointUrlLength as the spec uses Int32.
     body += struct.pack("<i", len(endpoint)) + endpoint
 
-    msg_size = 8 + 8 + len(body)  # type(3)+chunk(1)+size(4) + seqHdr(8) + body
+    msg_size = 8 + 8 + len(body)
     header = b"HEL" + b"F" + struct.pack("<I", msg_size) + struct.pack("<I", 0)
     seq = struct.pack("<II", 1, 1)
     return header + seq + body
