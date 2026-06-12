@@ -38,6 +38,22 @@ int main(void)
         return 2;
     }
 
+    /* Print the actual serverUrls the server was configured with, so
+     * the CI log shows what port the EventLoop was told to bind. */
+    UA_ServerConfig *cfg = UA_Server_getConfig(server);
+    for (size_t i = 0; i < cfg->serverUrlsSize; i++) {
+        char url[256] = {0};
+        size_t n = cfg->serverUrls[i].length;
+        if (n >= sizeof(url)) n = sizeof(url) - 1;
+        memcpy(url, cfg->serverUrls[i].data, n);
+        printf("Configured ServerUrl[%zu]: %s\n", i, url);
+    }
+    fflush(stdout);
+    if (!server) {
+        fprintf(stderr, "OpcUaServer_GetHandle returned NULL\n");
+        return 2;
+    }
+
     /* Tick the server for a few seconds so it has a chance to bind
      * the TCP socket.  This is a pure host-loop test, no real client. */
     time_t deadline = time(NULL) + 3;
