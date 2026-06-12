@@ -49,7 +49,7 @@ jobs:
             open62541.c -o /tmp/open62541.o
           ls -l /tmp/open62541.o
 
-      - name: Diagnostic: dump port-related preprocessor output
+      - name: "Diagnostic: dump port-related preprocessor output"
         run: |
           set -e
           echo "=== Preprocessed OPCUA_SERVER_PORT and setMinimal ==="
