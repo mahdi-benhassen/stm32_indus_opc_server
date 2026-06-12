@@ -17,6 +17,13 @@
 
 #include "cmsis_os_stubs.h"
 
+/* ---- Driver stubs so the application links on the CI host build. ------- */
+__attribute__((weak)) void DO_Driver_Set    (uint8_t ch, uint8_t v) { (void)ch; (void)v; }
+__attribute__((weak)) void AO_Driver_Set    (uint8_t ch, int32_t v)  { (void)ch; (void)v; }
+__attribute__((weak)) void RELAY_Driver_Set (uint8_t ch, uint8_t v) { (void)ch; (void)v; }
+__attribute__((weak)) void Counter_Reset    (void)                  { }
+__attribute__((weak)) void Log_Print        (const char *s, uint16_t n) { (void)s; (void)n; }
+
 osMutexId_t osMutexNew(const osMutexAttr_t *attr)
 {
     (void)attr;

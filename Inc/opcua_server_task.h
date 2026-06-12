@@ -54,11 +54,9 @@
 /* ----------------------------------------------------------------------------
  * open62541 header
  * ---------------------------------------------------------------------------- */
-#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
-  #include "open62541.h"
-#else
-  #include "open62541_stub.h"
-#endif
+/* Both CI and target builds consume the same open62541.h header; only the
+ * includes for the embedded-only stack (lwIP, FreeRTOS, CMSIS) are guarded. */
+#include "open62541.h"
 
 /* ----------------------------------------------------------------------------
  * Public configuration

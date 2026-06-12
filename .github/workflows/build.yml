@@ -15,50 +15,70 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install ARM toolchain
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
-          arm-none-eabi-gcc --version
+          sudo apt-get install -y build-essential python3
+          gcc --version
 
-      - name: Fetch open62541 amalgamated release (target reference only)
-        # The amalgamation is consumed by the STM32CubeIDE build, NOT by CI.
-        # We still keep a copy of the header under third_party/ for reference,
-        # but the CI compile uses Inc/open62541_stub.h so the build doesn't
-        # need to drag in the 16 MB .c, the lwIP stack, or pthread headers.
+      - name: Fetch open62541 amalgamated release
+        # CI uses the real amalgamation so the build validates against
+        # the same header and API the STM32CubeIDE build will see.
+        # We compile it for the host (Linux/POSIX) with all the heavy
+        # features (discovery, encryption, history) turned off via
+        # the project's Inc/ua_config.h.
         run: |
           mkdir -p third_party/open62541
           UA_VER=v1.5.4
           curl -fsSL -o third_party/open62541/open62541.c \
-            https://github.com/open62541/open62541/releases/download/${UA_VER}/open62541.c || true
+            https://github.com/open62541/open62541/releases/download/${UA_VER}/open62541.c
           curl -fsSL -o third_party/open62541/open62541.h \
-            https://github.com/open62541/open62541/releases/download/${UA_VER}/open62541.h || true
-          ls -l third_party/open62541/ || true
+            https://github.com/open62541/open62541/releases/download/${UA_VER}/open62541.h
+          ls -l third_party/open62541/
+          head -50 third_party/open62541/open62541.h
 
-      - name: Compile (syntax + link check on host)
-        # The CI builds the two application translation units against the
-        # local Inc/open62541_stub.h (not the 16 MB amalgamation) so we
-        # don't need lwIP, FreeRTOS, or pthread on the runner.  On the
-        # real target OPCUA_EMBEDDED_TARGET=1 swaps the stub for the
-        # real open62541.h and links the amalgamation.
+      - name: Compile amalgamation (host)
+        working-directory: third_party/open62541
         run: |
           set -e
-          CFLAGS="-c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
+          gcc -c -O0 -g \
+            -DUA_CONFIG_H_FILE='"../../Inc/ua_config.h"' \
+            -I . -I ../../Inc \
+            -Wno-implicit-function-declaration \
+            open62541.c -o /tmp/open62541.o
+          ls -l /tmp/open62541.o
+
+      - name: Compile application sources (host)
+        run: |
+          set -e
+          CFLAGS="-c -O0 -g \
                   -DUA_CONFIG_H_FILE='\"ua_config.h\"' \
-                  -I Inc \
-                  -ffunction-sections -fdata-sections \
+                  -I Inc -I third_party/open62541 \
                   -Wno-implicit-function-declaration"
-          arm-none-eabi-gcc $CFLAGS Src/opcua_server_task.c -o /tmp/opcua_server_task.o
-          arm-none-eabi-gcc $CFLAGS Src/opcua_node_model.c   -o /tmp/opcua_node_model.o
-          arm-none-eabi-gcc -c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
-                  -I Inc \
-                  Src/cmsis_os_stubs.c -o /tmp/cmsis_os_stubs.o
-          arm-none-eabi-gcc -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
-                  -nostdlib -Wl,--unresolved-symbols=ignore-all \
-                  /tmp/opcua_server_task.o /tmp/opcua_node_model.o /tmp/cmsis_os_stubs.o \
-                  -o /tmp/opcua_server.elf
-          arm-none-eabi-size /tmp/opcua_server.elf || true
-          ls -l /tmp/*.o /tmp/*.elf
+          gcc $CFLAGS Src/opcua_server_task.c -o /tmp/opcua_server_task.o
+          gcc $CFLAGS Src/opcua_node_model.c   -o /tmp/opcua_node_model.o
+          gcc -c -O0 -g -I Inc -DUA_CONFIG_H_FILE='"ua_config.h"' -I third_party/open62541 \
+            Src/cmsis_os_stubs.c -o /tmp/cmsis_os_stubs.o
+          ls -l /tmp/*.o
+
+      - name: Partial link (catch symbol mismatches)
+        run: |
+          set -e
+          # The CI build does not provide a main() - the project is meant
+          # to be linked into a FreeRTOS firmware image.  We use
+          # `ld -r` (relocatable link) which does NOT require an entry
+          # point but does resolve every external symbol, exactly what
+          # we need to catch API/signature mismatches between our code
+          # and the amalgamation.
+          ld -r \
+            /tmp/open62541.o \
+            /tmp/opcua_server_task.o \
+            /tmp/opcua_node_model.o \
+            /tmp/cmsis_os_stubs.o \
+            -o /tmp/opcua_server.o
+          nm /tmp/opcua_server.o | grep -E ' U ' | head -20
+          size /tmp/opcua_server.o || true
+          ls -l /tmp/opcua_server.o
 
       - name: Upload artifacts
         if: always()
@@ -66,7 +86,8 @@ jobs:
         with:
           name: build-artifacts
           path: |
+            /tmp/open62541.o
             /tmp/opcua_server_task.o
             /tmp/opcua_node_model.o
             /tmp/cmsis_os_stubs.o
-            /tmp/opcua_server.elf
+            /tmp/opcua_server.o

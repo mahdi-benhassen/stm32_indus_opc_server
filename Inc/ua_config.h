@@ -1,7 +1,9 @@
 /*
  * ua_config.h
  *
- * open62541 configuration for STM32F407 (Cortex-M4, 192KB RAM, 1MB Flash).
+ * open62541 configuration for STM32F407 (Cortex-M4, 192KB RAM, 1MB Flash),
+ * also used as the host-side ua_config.h in the CI sanity build.
+ *
  * Tuned to fit in a small embedded target while still exposing browseable
  * I/O nodes and supporting subscriptions / methods.
  *
@@ -24,7 +26,9 @@
 /* -------------------------------------------------------------------------- */
 /* Feature toggles  (smaller footprint, no discovery, no encryption)           */
 /* -------------------------------------------------------------------------- */
-#define UA_LOGLEVEL              100   /* Errors + warnings only             */
+/* Logging verbosity is configured at runtime via UA_Logger; we leave the
+ * UA_LOGLEVEL macro at open62541's default to avoid clashing with their
+ * internal enum tags. */
 #define UA_ENABLE_METHODCALLS    1     /* We use Method nodes                */
 #define UA_ENABLE_NODEMANAGEMENT 1
 #define UA_ENABLE_SUBSCRIPTIONS  1     /* DataChange needed for SCADA push   */

@@ -1,7 +1,7 @@
 /*
  * opcua_server_task.c
  *
- * FreeRTOS task that drives the open62541 server on top of lwIP.
+ * FreeRTOS task that drives the open62541 v1.5.4 server on top of lwIP.
  *
  *   main() / startup
  *       |
@@ -12,7 +12,7 @@
  *
  *   vOpcUaServerTask
  *       for(;;) {
- *           UA_Server_run_iterate(server, OPCUA_TASK_PERIOD_MS);
+ *           UA_Server_run_iterate(server, true);  // wait for messages
  *           osDelay(OPCUA_TASK_PERIOD_MS);
  *       }
  */
@@ -22,24 +22,24 @@
 
 #include <string.h>
 #include <stdint.h>
+#include <stdarg.h>
 
 #if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
   #include "lwip/sockets.h"
   #include "lwip/netif.h"
   #include "FreeRTOS.h"
   #include "cmsis_os.h"
-  #include <stdio.h>   /* vsnprintf */
+  #include <stdio.h>
 #endif
 
 /* ----------------------------------------------------------------------------
  * Globals
  * ---------------------------------------------------------------------------- */
-static UA_Server        *g_opcuaServer   = NULL;
-static OpcUaThreadId     g_opcuaTaskHandle = NULL;
-static volatile uint8_t  g_opcuaRunning  = 0;
+static UA_Server         *g_opcuaServer     = NULL;
+static OpcUaThreadId      g_opcuaTaskHandle  = NULL;
+static volatile uint8_t   g_opcuaRunning     = 0;
 
 #if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
-/* Real CMSIS-RTOS2 attributes. */
 static const osMutexAttr_t g_IoRegMutex_attr = {
     .name      = "IoRegMutex",
     .attr_bits = osMutexRecursive | osMutexPrioInherit,
@@ -48,7 +48,6 @@ static const osMutexAttr_t g_IoRegMutex_attr = {
 };
 OpcUaMutexId g_IoRegMutexHandle;
 #else
-/* CI build uses the stubbed mutex; provide a fake handle so other TUs link. */
 OpcUaMutexId g_IoRegMutexHandle = (OpcUaMutexId)0;
 #endif
 
@@ -76,8 +75,7 @@ static IoShadow_t s_shadow;
 uint8_t OpcUa_Hw_ReadDI(uint8_t ch)
 {
     if (ch >= 8) return 0;
-    OpcUaStatus s = OpcUa_MutexAcquire(g_IoRegMutexHandle, OPCUA_OS_WAIT_FOREVER);
-    (void)s;
+    OpcUa_MutexAcquire(g_IoRegMutexHandle, OPCUA_OS_WAIT_FOREVER);
     uint8_t v = s_shadow.di[ch];
     OpcUa_MutexRelease(g_IoRegMutexHandle);
     return v;
@@ -89,8 +87,12 @@ void OpcUa_Hw_WriteDO(uint8_t ch, uint8_t v)
     OpcUa_MutexAcquire(g_IoRegMutexHandle, OPCUA_OS_WAIT_FOREVER);
     s_shadow.do_[ch] = (v ? 1 : 0);
     OpcUa_MutexRelease(g_IoRegMutexHandle);
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
     extern void DO_Driver_Set(uint8_t channel, uint8_t value);
     DO_Driver_Set(ch, v ? 1 : 0);
+#else
+    (void)ch; (void)v;
+#endif
 }
 
 int32_t OpcUa_Hw_ReadAI(uint8_t ch)
@@ -108,8 +110,12 @@ void OpcUa_Hw_WriteAO(uint8_t ch, int32_t v)
     OpcUa_MutexAcquire(g_IoRegMutexHandle, OPCUA_OS_WAIT_FOREVER);
     s_shadow.ao[ch] = v;
     OpcUa_MutexRelease(g_IoRegMutexHandle);
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
     extern void AO_Driver_Set(uint8_t channel, int32_t value);
     AO_Driver_Set(ch, v);
+#else
+    (void)ch; (void)v;
+#endif
 }
 
 uint8_t OpcUa_Hw_ReadRelay(uint8_t ch)
@@ -127,12 +133,15 @@ void OpcUa_Hw_WriteRelay(uint8_t ch, uint8_t v)
     OpcUa_MutexAcquire(g_IoRegMutexHandle, OPCUA_OS_WAIT_FOREVER);
     s_shadow.relay[ch] = (v ? 1 : 0);
     OpcUa_MutexRelease(g_IoRegMutexHandle);
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
     extern void RELAY_Driver_Set(uint8_t channel, uint8_t value);
     RELAY_Driver_Set(ch, v ? 1 : 0);
+#else
+    (void)ch; (void)v;
+#endif
 }
 
 #if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
-/* ISR-side helpers - only meaningful on the real target. */
 void OpcUa_Hw_UpdateDIFromISR(uint8_t ch, uint8_t v)
 {
     if (ch >= 8) return;
@@ -146,10 +155,9 @@ void OpcUa_Hw_UpdateAIFromISR(uint8_t ch, int32_t v)
 #endif
 
 /* ----------------------------------------------------------------------------
- * open62541 logger - route to UART / RTT on the real target, /dev/null on CI
+ * open62541 logger - v1.5.4 UA_Logger signature
  * ---------------------------------------------------------------------------- */
-#include <stdarg.h>
-static void OpcUa_Log(void *ctx, int level, int category,
+static void OpcUa_Log(void *ctx, UA_LogLevel level, UA_LogCategory category,
                       const char *msg, va_list args)
 {
     (void)ctx; (void)level; (void)category; (void)msg; (void)args;
@@ -163,6 +171,12 @@ static void OpcUa_Log(void *ctx, int level, int category,
 #endif
 }
 
+static UA_Logger g_opcuaLogger = {
+    .log     = OpcUa_Log,
+    .context = NULL,
+    .clear   = NULL
+};
+
 /* ----------------------------------------------------------------------------
  * Server initialization
  * ---------------------------------------------------------------------------- */
@@ -174,27 +188,19 @@ int32_t OpcUaServer_Init(void)
     if (!g_IoRegMutexHandle) return -1;
 #endif
 
-    /* 2. Build the server config with the minimal port. */
-    UA_ServerConfig *cfg = (UA_ServerConfig *)
-        UA_ServerConfig_new_minimal(OPCUA_SERVER_PORT, NULL);
-    if (!cfg) return -2;
+    /* 2. Build a server with a default config and the right logger. */
+    g_opcuaServer = UA_Server_new();
+    if (!g_opcuaServer) return -2;
 
-    /* 3. Route the logger and lock the security policy down to None. */
-    UA_Logger logger = { OpcUa_Log, NULL, 0, 100 /* UA_LOGLEVEL */ };
-    UA_ServerConfig_setLogger(cfg, logger);
-    {
-        UA_String nonePolicy = UA_STRING("http://opcfoundation.org/UA/SecurityPolicy#None");
-        UA_ServerConfig_addSecurityPolicyNone(cfg, &nonePolicy);
-    }
+    UA_ServerConfig *cfg = UA_Server_getConfig(g_opcuaServer);
+    UA_ServerConfig_setMinimal(cfg, OPCUA_SERVER_PORT, NULL);
+    UA_ServerConfig_addSecurityPolicyNone(cfg, NULL);
+    cfg->logging = &g_opcuaLogger;
 
-    /* 4. Allocate the server. */
-    g_opcuaServer = UA_Server_newWithConfig(cfg);
-    if (!g_opcuaServer) return -3;
+    /* 3. Build the address space. */
+    if (OpcUaNodeModel_Build(g_opcuaServer) != UA_STATUSCODE_GOOD) return -3;
 
-    /* 5. Build the address space. */
-    if (OpcUaNodeModel_Build(g_opcuaServer) != UA_STATUSCODE_GOOD) return -4;
-
-    /* 6. Spawn the FreeRTOS task that drives the server. */
+    /* 4. Spawn the FreeRTOS task that drives the server. */
 #if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
     {
         const osThreadAttr_t taskAttr = {
@@ -205,11 +211,9 @@ int32_t OpcUaServer_Init(void)
             .cb_size    = 0U
         };
         g_opcuaTaskHandle = osThreadNew(vOpcUaServerTask, NULL, &taskAttr);
-        if (!g_opcuaTaskHandle) return -5;
+        if (!g_opcuaTaskHandle) return -4;
     }
 #else
-    /* On the CI build we don't actually start a task; the server is built
-     * and the symbols below are referenced for the link check. */
     (void)vOpcUaServerTask;
     g_opcuaTaskHandle = (OpcUaThreadId)0;
 #endif
@@ -225,7 +229,7 @@ void vOpcUaServerTask(void *argument)
 {
     (void)argument;
     while (g_opcuaRunning) {
-        UA_Server_run_iterate(g_opcuaServer, (UA_UInt16)OPCUA_TASK_PERIOD_MS);
+        UA_Server_run_iterate(g_opcuaServer, true);
         osDelay(OPCUA_TASK_PERIOD_MS);
     }
     UA_Server_delete(g_opcuaServer);
