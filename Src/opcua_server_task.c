@@ -241,3 +241,8 @@ void OpcUaServer_Stop(void)
 {
     g_opcuaRunning = 0;
 }
+
+void *OpcUaServer_GetHandle(void)
+{
+    return g_opcuaServer;
+}

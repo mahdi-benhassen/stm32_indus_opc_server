@@ -78,4 +78,7 @@ int32_t  OpcUaServer_Init (void);
 void     vOpcUaServerTask(void *argument);
 void     OpcUaServer_Stop (void);
 
+/* Return the live UA_Server* (only meaningful after OpcUaServer_Init). */
+void    *OpcUaServer_GetHandle(void);
+
 #endif /* OPCUA_SERVER_TASK_H_ */

@@ -58,37 +58,49 @@ jobs:
                   -Wno-implicit-function-declaration"
           gcc $CFLAGS Src/opcua_server_task.c -o /tmp/opcua_server_task.o
           gcc $CFLAGS Src/opcua_node_model.c   -o /tmp/opcua_node_model.o
+          gcc $CFLAGS Src/main_ci.c            -o /tmp/main_ci.o
           gcc -c -O0 -g -I Inc -DUA_CONFIG_H_FILE='"ua_config.h"' -I third_party/open62541 \
             Src/cmsis_os_stubs.c -o /tmp/cmsis_os_stubs.o
           ls -l /tmp/*.o
 
-      - name: Partial link (catch symbol mismatches)
+      - name: Link executable (host)
         run: |
           set -e
-          # The CI build does not provide a main() - the project is meant
-          # to be linked into a FreeRTOS firmware image.  We use
-          # `ld -r` (relocatable link) which does NOT require an entry
-          # point but does resolve every external symbol, exactly what
-          # we need to catch API/signature mismatches between our code
-          # and the amalgamation.
-          ld -r \
+          gcc -o /tmp/opcua_server \
             /tmp/open62541.o \
             /tmp/opcua_server_task.o \
             /tmp/opcua_node_model.o \
             /tmp/cmsis_os_stubs.o \
-            -o /tmp/opcua_server.o
-          nm /tmp/opcua_server.o | grep -E ' U ' | head -20
-          size /tmp/opcua_server.o || true
-          ls -l /tmp/opcua_server.o
+            /tmp/main_ci.o \
+            -lpthread -lm
+          size /tmp/opcua_server || true
+          file /tmp/opcua_server
+          ls -l /tmp/opcua_server
+
+      - name: Smoke test (run for 3 seconds, check :4840 binds)
+        run: |
+          set -e
+          # Start the server in the background, give it time to bind the
+          # OPC UA listener, and probe the port.
+          /tmp/opcua_server &
+          SERVER_PID=$!
+          sleep 2
+          if ss -tlnp 2>/dev/null | grep -q ':4840'; then
+            echo "OPC UA server bound to :4840 - OK"
+            kill $SERVER_PID 2>/dev/null || true
+            wait $SERVER_PID 2>/dev/null || true
+            exit 0
+          else
+            echo "OPC UA server did NOT bind :4840"
+            kill $SERVER_PID 2>/dev/null || true
+            wait $SERVER_PID 2>/dev/null || true
+            ss -tlnp 2>/dev/null || true
+            exit 1
+          fi
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-artifacts
-          path: |
-            /tmp/open62541.o
-            /tmp/opcua_server_task.o
-            /tmp/opcua_node_model.o
-            /tmp/cmsis_os_stubs.o
-            /tmp/opcua_server.o
+          name: opcua-server-elf
+          path: /tmp/opcua_server
