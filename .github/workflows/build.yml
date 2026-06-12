@@ -49,23 +49,6 @@ jobs:
             open62541.c -o /tmp/open62541.o
           ls -l /tmp/open62541.o
 
-      - name: "Diagnostic: inspect the port arg in the linked binary"
-        run: |
-          set -e
-          # The setMinimal call is `movw r0, #PORT` (or immediate) in the
-          # ARM build; on the host build it's `movl $PORT, %edi`.  Dump
-          # the disassembly of OpcUaServer_Init so we can read the
-          # literal port value the compiler actually emitted.
-          objdump -d /tmp/opcua_server_task.o \
-            | awk '/<OpcUaServer_Init>:/,/^$/' \
-            | grep -E 'mov|setMinimal|callq' \
-            | head -40
-          echo "---"
-          # Also confirm the preprocessor sees OPCUA_SERVER_PORT = 4840.
-          gcc -E -DUA_CONFIG_H_FILE='"ua_config.h"' -I Inc -I third_party/open62541 \
-            Src/opcua_server_task.c \
-            | grep -E 'setMinimal\(&config' | head -3
-
       - name: Compile application sources (host)
         run: |
           set -e
@@ -79,6 +62,19 @@ jobs:
           gcc -c -O0 -g -I Inc -DUA_CONFIG_H_FILE='"ua_config.h"' -I third_party/open62541 \
             Src/cmsis_os_stubs.c -o /tmp/cmsis_os_stubs.o
           ls -l /tmp/*.o
+
+      - name: "Diagnostic: inspect the port arg in the compiled .o"
+        run: |
+          set -e
+          echo "=== OpcUaServer_Init disassembly (first 30 mov/call/jmp) ==="
+          objdump -d /tmp/opcua_server_task.o \
+            | awk '/<OpcUaServer_Init>:/{flag=1} flag; /^$/{flag=0}' \
+            | grep -E 'mov|call|jmp' | head -30
+          echo "---"
+          echo "=== Preprocessed setMinimal call ==="
+          gcc -E -DUA_CONFIG_H_FILE='"ua_config.h"' -I Inc -I third_party/open62541 \
+            Src/opcua_server_task.c \
+            | grep -E 'setMinimal' | head -3
 
       - name: Link executable (host)
         run: |
