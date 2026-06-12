@@ -241,10 +241,20 @@ int32_t OpcUaServer_Init(void)
 void vOpcUaServerTask(void *argument)
 {
     (void)argument;
+
+    /* run_startup must be called once before the iterate loop; it
+     * starts the binary protocol manager which opens the listening
+     * socket on OPCUA_SERVER_PORT. */
+    UA_StatusCode sr = UA_Server_run_startup(g_opcuaServer);
+    if (sr != UA_STATUSCODE_GOOD) {
+        g_opcuaRunning = 0;
+    }
+
     while (g_opcuaRunning) {
         UA_Server_run_iterate(g_opcuaServer, true);
         osDelay(OPCUA_TASK_PERIOD_MS);
     }
+    UA_Server_run_shutdown(g_opcuaServer);
     UA_Server_delete(g_opcuaServer);
     g_opcuaServer = NULL;
     osThreadTerminate(osThreadGetId());
