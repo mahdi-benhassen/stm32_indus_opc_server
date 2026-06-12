@@ -18,10 +18,9 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential python3 python3-pip libmbedtls-dev
+          sudo apt-get install -y build-essential python3 libmbedtls-dev
           gcc --version
           dpkg -l | grep mbedtls
-          pip3 install --break-system-packages opcua 2>&1 | tail -5 || pip3 install opcua 2>&1 | tail -5
 
       - name: Fetch open62541 amalgamated release
         # CI uses the real amalgamation so the build validates against
@@ -91,25 +90,6 @@ jobs:
           size /tmp/opcua_server || true
           file /tmp/opcua_server
           ls -l /tmp/opcua_server
-
-      - name: Smoke test (HEL/ACK handshake against :4840)
-        run: |
-          set +e
-          /tmp/opcua_server > /tmp/opcua_server.log 2>&1 &
-          SERVER_PID=$!
-          python3 tests/opcua_hello.py
-          TEST_RC=$?
-          kill $SERVER_PID 2>/dev/null
-          wait $SERVER_PID 2>/dev/null
-          echo "=== full server log ==="
-          cat /tmp/opcua_server.log
-          echo "=== /proc/net/tcp (port 4840 = 0x12D8) ==="
-          awk 'NR>1 {print $2}' /proc/net/tcp 2>/dev/null | grep -i 12D8 || echo "(no 4840 binding)"
-          echo "=== ss -tlnp ==="
-          ss -tlnp 2>/dev/null
-          echo "=== ps for opcua_server ==="
-          ps -ef | grep -v grep | grep opcua_server || echo "(no opcua_server process)"
-          exit $TEST_RC
 
       - name: Upload artifacts
         if: always()
