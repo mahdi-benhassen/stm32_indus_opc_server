@@ -228,7 +228,8 @@ addCallbackVar(UA_Server *s, UA_NodeId parent, const char *name,
 
     /* Initialise the value so the server has a sane scalar to return
      * before the first callback fires. */
-    if (UA_NodeId_equal(&typeId, &UA_NS0ID(BOOLEAN))) {
+    UA_NodeId boolId = UA_NS0ID(BOOLEAN);
+    if (UA_NodeId_equal(&typeId, &boolId)) {
         UA_Boolean z = false;
         UA_Variant_setScalarCopy(&va.value, &z, &UA_TYPES[UA_TYPES_BOOLEAN]);
     } else {
