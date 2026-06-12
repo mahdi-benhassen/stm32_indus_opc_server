@@ -22,17 +22,18 @@ def build_hello() -> bytes:
       HELF header:  type(3)='HEL' + chunk(1)='F' + size(4) + secChanId(4)
       SequenceHeader: seqNumber(4) + requestId(4)
       Body:
-        protocolVersion (4)
-        receiveBufferSize (4)
-        sendBufferSize (4)
-        maxMessageSize (4)
-        maxChunkCount (4)
-        endpointUrlLength (4)
+        protocolVersion (uint32)
+        receiveBufferSize (uint32)
+        sendBufferSize (uint32)
+        maxMessageSize (uint32)
+        maxChunkCount (uint32)
+        endpointUrlLength (int32, signed!)
         endpointUrl (var)
     """
     endpoint = b"opc.tcp://127.0.0.1:4840"
     body = struct.pack("<IIIII", 0, 65535, 65535, 0, 0)
-    body += struct.pack("<I", len(endpoint)) + endpoint
+    # Use int32 ('i') for endpointUrlLength as the spec uses Int32.
+    body += struct.pack("<i", len(endpoint)) + endpoint
 
     msg_size = 8 + 8 + len(body)  # type(3)+chunk(1)+size(4) + seqHdr(8) + body
     header = b"HEL" + b"F" + struct.pack("<I", msg_size) + struct.pack("<I", 0)
