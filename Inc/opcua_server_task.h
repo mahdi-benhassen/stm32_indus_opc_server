@@ -66,7 +66,7 @@
  * ---------------------------------------------------------------------------- */
 #define OPCUA_TASK_STACK_BYTES   (16 * 1024UL)   /* 16 KB, monitor with uxTaskGetStackHighWaterMark */
 #define OPCUA_TASK_PERIOD_MS     50              /* 20 Hz server tick       */
-#define OPCUA_SERVER_PORT        14840   /* TEST: should be 14840 if my macro wins */
+#define OPCUA_SERVER_PORT        4840
 
 /* Thread-safe IO helpers exposed for the node-model callbacks. */
 uint8_t  OpcUa_Hw_ReadDI   (uint8_t channel);

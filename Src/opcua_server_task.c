@@ -179,6 +179,13 @@ static UA_Logger g_opcuaLogger = {
 
 /* ----------------------------------------------------------------------------
  * Server initialization
+ *
+ * We allocate a UA_ServerConfig on the stack, fill it with the requested
+ * port + SecurityPolicy#None + logger, then call UA_Server_newWithConfig
+ * to create the server.  UA_Server_new() (which auto-creates a config
+ * bound to port 4840) would be too late: the event loop would have
+ * already started and bound 4840, so a later setMinimal() would
+ * merely warn and have no effect.
  * ---------------------------------------------------------------------------- */
 int32_t OpcUaServer_Init(void)
 {
@@ -188,19 +195,25 @@ int32_t OpcUaServer_Init(void)
     if (!g_IoRegMutexHandle) return -1;
 #endif
 
-    /* 2. Build a server with a default config and the right logger. */
-    g_opcuaServer = UA_Server_new();
-    if (!g_opcuaServer) return -2;
+    /* 2. Build the config first.  setMinimal configures the
+     *    event loop, the TCP listener (on the requested port) and
+     *    the SecurityPolicy#None. */
+    UA_ServerConfig config;
+    memset(&config, 0, sizeof(UA_ServerConfig));
+    UA_StatusCode r = UA_ServerConfig_setMinimal(&config, OPCUA_SERVER_PORT, NULL);
+    if (r != UA_STATUSCODE_GOOD) return -2;
 
-    UA_ServerConfig *cfg = UA_Server_getConfig(g_opcuaServer);
-    UA_ServerConfig_setMinimal(cfg, OPCUA_SERVER_PORT, NULL);
-    UA_ServerConfig_addSecurityPolicyNone(cfg, NULL);
-    cfg->logging = &g_opcuaLogger;
+    config.logging = &g_opcuaLogger;
 
-    /* 3. Build the address space. */
-    if (OpcUaNodeModel_Build(g_opcuaServer) != UA_STATUSCODE_GOOD) return -3;
+    /* 3. Create the server.  This actually starts the event loop
+     *    and binds the listener socket on OPCUA_SERVER_PORT. */
+    g_opcuaServer = UA_Server_newWithConfig(&config);
+    if (!g_opcuaServer) return -3;
 
-    /* 4. Spawn the FreeRTOS task that drives the server. */
+    /* 4. Build the address space. */
+    if (OpcUaNodeModel_Build(g_opcuaServer) != UA_STATUSCODE_GOOD) return -4;
+
+    /* 5. Spawn the FreeRTOS task that drives the server. */
 #if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
     {
         const osThreadAttr_t taskAttr = {
@@ -211,7 +224,7 @@ int32_t OpcUaServer_Init(void)
             .cb_size    = 0U
         };
         g_opcuaTaskHandle = osThreadNew(vOpcUaServerTask, NULL, &taskAttr);
-        if (!g_opcuaTaskHandle) return -4;
+        if (!g_opcuaTaskHandle) return -5;
     }
 #else
     (void)vOpcUaServerTask;
