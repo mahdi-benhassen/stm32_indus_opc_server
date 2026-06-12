@@ -95,17 +95,35 @@ jobs:
         run: |
           set -e
           # Start the server in the background, give it time to bind the
-          # OPC UA listener, then probe the port.  We also verify the
-          # listener actually answers on port 4840 (not 8084 or any
-          # other port left over from a previous CI run).
+          # OPC UA listener, then probe the port from multiple angles.
           /tmp/opcua_server > /tmp/opcua_server.log 2>&1 &
           SERVER_PID=$!
           sleep 2
 
-          echo "=== ss -tlnp ==="
+          echo "=== ss -tlnp (all sockets) ==="
           ss -tlnp 2>/dev/null || true
+          echo "=== ss -6 -tlnp (IPv6) ==="
+          ss -6 -tlnp 2>/dev/null || true
+          echo "=== netstat ==="
+          netstat -tln 2>/dev/null || true
+          echo "=== /proc/net/tcp ==="
+          awk 'NR>1 {print $2}' /proc/net/tcp | head -20 || true
+          echo "=== Connecting to :4840 ==="
+          if (echo "" | nc -w 2 127.0.0.1 4840) 2>&1 | head -5; then
+            echo "nc to :4840 succeeded"
+          else
+            echo "nc to :4840 FAILED"
+          fi
 
-          if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE ':4840$|:4840\s'; then
+          # Did the server stay alive?
+          if ! kill -0 $SERVER_PID 2>/dev/null; then
+            echo "Server process exited unexpectedly"
+            cat /tmp/opcua_server.log
+            exit 1
+          fi
+
+          if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE ':4840$|:4840\s' \
+             || awk 'NR>1 {print $2}' /proc/net/tcp | grep -qi ':12D8$' ; then
             echo "OPC UA server bound to :4840 - OK"
             kill $SERVER_PID 2>/dev/null || true
             wait $SERVER_PID 2>/dev/null || true
