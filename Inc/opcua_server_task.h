@@ -16,7 +16,7 @@
  * from the CMSIS pack; on the CI build we stub it so the source still
  * compiles against plain arm-none-eabi-gcc + FreeRTOS.
  */
-#if defined(OPCUA_USE_CMSIS_OS) && (OPCUA_USE_CMSIS_OS == 1)
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
   #include "cmsis_os.h"
 #else
   #include "cmsis_os_stubs.h"

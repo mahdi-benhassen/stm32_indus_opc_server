@@ -34,25 +34,27 @@ jobs:
           ls -l third_party/open62541/
 
       - name: Compile (syntax + link check on host)
+        # The CI builds the two application translation units against the
+        # open62541 *header* (for signature/symbol sanity) but does NOT
+        # compile the 16 MB amalgamation body - that requires the real
+        # lwIP / FreeRTOS / POSIX socket stack present on the STM32
+        # target, not the bare cross compiler on the runner.
         run: |
           set -e
+          CFLAGS="-c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
+                  -DUA_CONFIG_H_FILE='\"ua_config.h\"' \
+                  -I Inc -I third_party/open62541 \
+                  -ffunction-sections -fdata-sections \
+                  -Wno-implicit-function-declaration"
+          arm-none-eabi-gcc $CFLAGS Src/opcua_server_task.c -o /tmp/opcua_server_task.o
+          arm-none-eabi-gcc $CFLAGS Src/opcua_node_model.c   -o /tmp/opcua_node_model.o
           arm-none-eabi-gcc -c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
-            -DUA_CONFIG_H_FILE='"ua_config.h"' \
-            -I Inc -I third_party/open62541 \
-            -ffunction-sections -fdata-sections \
-            Src/opcua_server_task.c -o /tmp/opcua_server_task.o
-          arm-none-eabi-gcc -c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
-            -DUA_CONFIG_H_FILE='"ua_config.h"' \
-            -I Inc -I third_party/open62541 \
-            -ffunction-sections -fdata-sections \
-            Src/opcua_node_model.c -o /tmp/opcua_node_model.o
-          arm-none-eabi-gcc -c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
-            -I Inc \
-            Src/cmsis_os_stubs.c -o /tmp/cmsis_os_stubs.o
+                  -I Inc \
+                  Src/cmsis_os_stubs.c -o /tmp/cmsis_os_stubs.o
           arm-none-eabi-gcc -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
-            -nostdlib -Wl,--unresolved-symbols=ignore-all \
-            /tmp/opcua_server_task.o /tmp/opcua_node_model.o /tmp/cmsis_os_stubs.o \
-            -o /tmp/opcua_server.elf
+                  -nostdlib -Wl,--unresolved-symbols=ignore-all \
+                  /tmp/opcua_server_task.o /tmp/opcua_node_model.o /tmp/cmsis_os_stubs.o \
+                  -o /tmp/opcua_server.elf
           arm-none-eabi-size /tmp/opcua_server.elf || true
           ls -l /tmp/*.o /tmp/*.elf
 

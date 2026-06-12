@@ -21,10 +21,14 @@
 
 #include "open62541.h"
 
-#include "lwip/sockets.h"     /* lwIP BSD socket layer                  */
-#include "lwip/netif.h"
-#include "FreeRTOS.h"
-#include "cmsis_os.h"
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
+  #include "lwip/sockets.h"     /* lwIP BSD socket layer                  */
+  #include "lwip/netif.h"
+  #include "FreeRTOS.h"
+  #include "cmsis_os.h"
+#else
+  #include <string.h>           /* for memset in the calloc/realloc stubs */
+#endif
 
 #include <string.h>
 #include <stdatomic.h>

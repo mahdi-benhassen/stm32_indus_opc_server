@@ -84,39 +84,37 @@
 /* pvPortMalloc / vPortFree are thread-safe (interrupt-disabling) and are     */
 /* safe to call from the OPC UA task context.                                  */
 /* -------------------------------------------------------------------------- */
-#include "FreeRTOS.h"
-
-#define UA_free(ptr)        vPortFree(ptr)
-#define UA_malloc(size)     pvPortMalloc(size)
-#define UA_calloc(num,size) pvPortMalloc(num*size)  /* see note below */
-#define UA_realloc(ptr,sz)  pvPortMalloc(sz)        /* see note below */
-
-/* NOTE on UA_calloc / UA_realloc:
- *   open62541's amalgamated build has UA_free / UA_malloc / UA_calloc / UA_realloc
- *   macros that all funnel into UA_SystemFunctions. The safest pattern on
- *   FreeRTOS is to provide wrappers that zero the buffer after allocation
- *   and use a real realloc if you have heap_5 with regions.
- *   Below we rely on the open62541 helpers UA_free / UA_malloc - we do
- *   NOT re-define UA_calloc/UA_realloc here to keep the build self-consistent.
- */
-#undef  UA_calloc
-#undef  UA_realloc
-#define UA_calloc(num,size)  ({ void *_p = pvPortMalloc((num)*(size)); \
-                                if(_p) memset(_p, 0, (num)*(size)); _p; })
-#define UA_realloc(ptr,sz)   ({ void *_p = pvPortMalloc(sz); \
-                                if(_p && (ptr)) { memcpy(_p,(ptr), (sz)); vPortFree(ptr); } _p; })
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
+  #include "FreeRTOS.h"
+  #define UA_free(ptr)        vPortFree(ptr)
+  #define UA_malloc(size)     pvPortMalloc(size)
+  #define UA_calloc(num,sz)   ({ void *_p = pvPortMalloc((num)*(sz));  \
+                                  if(_p) memset(_p,0,(num)*(sz)); _p; })
+  #define UA_realloc(ptr,sz)  ({ void *_p = pvPortMalloc(sz);          \
+                                  if(_p && (ptr)) { memcpy(_p,(ptr),(sz)); vPortFree(ptr); } _p; })
+#else
+  /* Host / CI build - fall back to the C library allocator. */
+  #include <stdlib.h>
+  #include <string.h>
+  #define UA_free(ptr)        free(ptr)
+  #define UA_malloc(size)     malloc(size)
+  #define UA_calloc(num,sz)   calloc((num),(sz))
+  #define UA_realloc(ptr,sz)  realloc((ptr),(sz))
+#endif
 
 /* -------------------------------------------------------------------------- */
 /* Stack / threading                                                          */
 /* -------------------------------------------------------------------------- */
-/* open62541 uses an internal mutex. On FreeRTOS we wrap it with our own
- * recursive mutex (see opcua_server_task.c) and tell the library to use
- * UA_LOCK / UA_UNLOCK no-ops so it doesn't create its own.
+/* open62541's amalgamated header still emits UA_LOCK_INIT / UA_LOCK / UA_UNLOCK
+ * macros that expand to pthread_* calls, even if UA_ENABLE_PTHREADS is 0.  We
+ * do NOT want pthread on the embedded target, so we stub them out completely.
+ * Our application code uses its own CMSIS-RTOS2 / FreeRTOS mutex.
  */
 #define UA_ENABLE_PTHREADS 0
-#define UA_LOCK
-#define UA_UNLOCK
-#define UA_LOCK_INIT(lock)
+#define UA_LOCK_INIT(lock)            do { (void)(lock); } while (0)
+#define UA_LOCK_DESTROY(lock)         do { (void)(lock); } while (0)
+#define UA_LOCK(lock)                 do { (void)(lock); } while (0)
+#define UA_UNLOCK(lock)               do { (void)(lock); } while (0)
 
 /* -------------------------------------------------------------------------- */
 /* Network - we use the lwIP Netconn / BSD socket API from the OPC UA task.   */
