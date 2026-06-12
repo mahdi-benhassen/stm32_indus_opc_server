@@ -55,13 +55,14 @@ int main(void)
     }
 
     /* Tick the server for a few seconds so it has a chance to bind
-     * the TCP socket.  This is a pure host-loop test, no real client. */
+     * the TCP socket.  Pass waitInternal=true so the EventLoop has
+     * time to do its initial bind of the listening sockets. */
     time_t deadline = time(NULL) + 3;
     while (time(NULL) < deadline) {
-        /* In v1.5.4: (server, waitInternal).  Pass false (non-blocking). */
-        UA_Server_run_iterate(server, false);
-        struct timespec ts = { 0, 50 * 1000 * 1000 };  /* 50 ms */
-        nanosleep(&ts, NULL);
+        /* In v1.5.4: (server, waitInternal).  true = block up to 500ms
+         * per iterate so the EventLoop can actually accept connections
+         * and run its initial bind. */
+        UA_Server_run_iterate(server, true);
     }
 
     printf("OPC UA server ran for 3 seconds; shutting down.\n");
