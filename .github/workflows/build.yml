@@ -91,24 +91,31 @@ jobs:
           file /tmp/opcua_server
           ls -l /tmp/opcua_server
 
-      - name: Smoke test (run for 3 seconds, check :4840 binds)
+      - name: Smoke test (run for 3 seconds, verify :4840 binds)
         run: |
           set -e
           # Start the server in the background, give it time to bind the
-          # OPC UA listener, and probe the port.
-          /tmp/opcua_server &
+          # OPC UA listener, then probe the port.  We also verify the
+          # listener actually answers on port 4840 (not 8084 or any
+          # other port left over from a previous CI run).
+          /tmp/opcua_server > /tmp/opcua_server.log 2>&1 &
           SERVER_PID=$!
           sleep 2
-          if ss -tlnp 2>/dev/null | grep -q ':4840'; then
+
+          echo "=== ss -tlnp ==="
+          ss -tlnp 2>/dev/null || true
+
+          if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE ':4840$|:4840\s'; then
             echo "OPC UA server bound to :4840 - OK"
             kill $SERVER_PID 2>/dev/null || true
             wait $SERVER_PID 2>/dev/null || true
             exit 0
           else
             echo "OPC UA server did NOT bind :4840"
+            echo "=== server log ==="
+            cat /tmp/opcua_server.log
             kill $SERVER_PID 2>/dev/null || true
             wait $SERVER_PID 2>/dev/null || true
-            ss -tlnp 2>/dev/null || true
             exit 1
           fi
 
