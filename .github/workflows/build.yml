@@ -49,6 +49,18 @@ jobs:
             open62541.c -o /tmp/open62541.o
           ls -l /tmp/open62541.o
 
+      - name: Diagnostic: dump port-related preprocessor output
+        run: |
+          set -e
+          echo "=== Preprocessed OPCUA_SERVER_PORT and setMinimal ==="
+          gcc -E -DUA_CONFIG_H_FILE='"ua_config.h"' -I Inc Src/opcua_server_task.c \
+            | grep -nE 'OPCUA_SERVER_PORT|UA_ServerConfig_setMinimal|setDefaultConfig|portNumber' \
+            | head -20
+          echo "=== Symbol value in compiled object ==="
+          gcc -c -g -DUA_CONFIG_H_FILE='"ua_config.h"' -I Inc Src/opcua_server_task.c \
+            -o /tmp/diag.o
+          objdump -d /tmp/diag.o | grep -A1 'OpcUaServer_Init' | head -20 || true
+
       - name: Compile application sources (host)
         run: |
           set -e
@@ -56,9 +68,6 @@ jobs:
                   -DUA_CONFIG_H_FILE='\"ua_config.h\"' \
                   -I Inc -I third_party/open62541 \
                   -Wno-implicit-function-declaration"
-          # Diagnostic: print the port value the preprocessor sees.
-          gcc -E -DUA_CONFIG_H_FILE='"ua_config.h"' -I Inc Src/opcua_server_task.c 2>/dev/null \
-            | grep -E 'OPCUA_SERVER_PORT|UA_ServerConfig_setMinimal' | head -5
           gcc $CFLAGS Src/opcua_server_task.c -o /tmp/opcua_server_task.o
           gcc $CFLAGS Src/opcua_node_model.c   -o /tmp/opcua_node_model.o
           gcc $CFLAGS Src/main_ci.c            -o /tmp/main_ci.o
