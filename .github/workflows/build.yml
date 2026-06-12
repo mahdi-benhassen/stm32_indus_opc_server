@@ -24,12 +24,13 @@ jobs:
       - name: Fetch open62541 amalgamated release
         run: |
           mkdir -p third_party/open62541
+          UA_VER=v1.5.4
           curl -fsSL -o third_party/open62541/open62541.c \
-            https://github.com/open62541/open62541/releases/download/v1.3.9/open62541.c
+            https://github.com/open62541/open62541/releases/download/${UA_VER}/open62541.c
           curl -fsSL -o third_party/open62541/open62541.h \
-            https://github.com/open62541/open62541/releases/download/v1.3.9/open62541.h
+            https://github.com/open62541/open62541/releases/download/${UA_VER}/open62541.h
           curl -fsSL -o third_party/open62541/LICENSE \
-            https://raw.githubusercontent.com/open62541/open62541/v1.3.9/LICENSE
+            https://raw.githubusercontent.com/open62541/open62541/${UA_VER}/LICENSE
           ls -l third_party/open62541/
 
       - name: Compile (syntax check on host)
