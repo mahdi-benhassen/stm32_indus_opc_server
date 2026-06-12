@@ -97,32 +97,58 @@ jobs:
           /tmp/opcua_server > /tmp/opcua_server.log 2>&1 &
           SERVER_PID=$!
 
-          # Poll for up to 5 seconds for the server to bind :4840
-          for i in $(seq 1 25); do
-            sleep 0.2
-            if awk 'NR>1 {print $2}' /proc/net/tcp 2>/dev/null | grep -qi ':12D8$'; then
-              echo "OPC UA server bound to :4840 after $((i*200))ms - OK"
-              kill $SERVER_PID 2>/dev/null || true
-              wait $SERVER_PID 2>/dev/null || true
-              exit 0
-            fi
-            if ! kill -0 $SERVER_PID 2>/dev/null; then
-              echo "Server process died early"
-              cat /tmp/opcua_server.log
-              exit 1
-            fi
-          done
+          # Send a minimal OPC UA Hello (HEL) message and look for the
+          # Acknowledge (ACK) response.  This is a real end-to-end test
+          # of the server.  The HEL/ACK encoding follows OPC UA Part 6.
+          python3 - <<'PY'
+import socket, struct, sys, time
+hello = (
+    b"HEL\x46"                       # message type + chunk type
+    + struct.pack("<I", 8 + 4 + 4 + 4 + 4 + 4)  # message size
+    + struct.pack("<I", 0)            # secure channel id
+    + struct.pack("<I", 0x12D8)       # 4840 in network byte order
+    + struct.pack("<I", 0)            # receive buffer size
+    + struct.pack("<I", 0)            # send buffer size
+    + struct.pack("<I", 0)            # max message size
+    + struct.pack("<I", 0)            # max chunk count
+)
 
-          echo "OPC UA server did NOT bind :4840 within 5s"
-          echo "=== server log ==="
-          cat /tmp/opcua_server.log
-          echo "=== ss -tlnp ==="
-          ss -tlnp 2>/dev/null || true
-          echo "=== /proc/net/tcp (port 4840 = 0x12D8) ==="
-          awk 'NR>1 {print $2}' /proc/net/tcp 2>/dev/null | grep -i 12D8 || echo "(no 4840 binding)"
+# OPC UA Hello body
+endpoint = b"opc.tcp://127.0.0.1:4840"
+hello_body = struct.pack("<I", len(endpoint)) + endpoint
+hello = b"HEL\x46" + struct.pack("<I", 8 + 4 + 4 + 4 + 4 + 4 + 4 + len(hello_body)) \
+       + struct.pack("<I", 0) \
+       + struct.pack("<I", 0x12D8) \
+       + struct.pack("<I", 0) \
+       + struct.pack("<I", 0) \
+       + struct.pack("<I", 0) \
+       + struct.pack("<I", 0) \
+       + hello_body
+
+for i in range(25):
+    time.sleep(0.2)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        s.connect(("127.0.0.1", 4840))
+        s.sendall(hello)
+        data = s.recv(1024)
+        s.close()
+        if data[:3] == b"ACK":
+            print(f"OPC UA server on :4840 returned ACK after {(i+1)*200}ms - OK")
+            sys.exit(0)
+        else:
+            print(f"got {data[:8].hex()!r} after {(i+1)*200}ms")
+    except (ConnectionRefusedError, socket.timeout, OSError) as e:
+        pass
+print("OPC UA server did not respond on :4840 within 5s")
+sys.exit(1)
+PY
+          TEST_RC=$?
           kill $SERVER_PID 2>/dev/null || true
           wait $SERVER_PID 2>/dev/null || true
-          exit 1
+          cat /tmp/opcua_server.log
+          exit $TEST_RC
 
       - name: Upload artifacts
         if: always()
