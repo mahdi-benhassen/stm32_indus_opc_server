@@ -72,7 +72,8 @@ jobs:
             /tmp/opcua_node_model.o \
             /tmp/cmsis_os_stubs.o \
             /tmp/main_ci.o \
-            -lpthread -lm
+            -lpthread -lm \
+            -lmbedtls -lmbedcrypto -lmbedx509
           size /tmp/opcua_server || true
           file /tmp/opcua_server
           ls -l /tmp/opcua_server

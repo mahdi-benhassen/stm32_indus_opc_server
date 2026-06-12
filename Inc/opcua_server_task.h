@@ -48,7 +48,10 @@
     uint32_t    cb_size;
   } OpcUaThreadAttr;
   #define OPCUA_OS_WAIT_FOREVER  0xFFFFFFFFU
-  /* Use the prototypes from cmsis_os_stubs.h. */
+  /* On the CI host build we don't have a real mutex - the wrappers just
+   * delegate to the no-op stubs in cmsis_os_stubs.c. */
+  static inline OpcUaStatus OpcUa_MutexAcquire(OpcUaMutexId m, uint32_t t) { (void)m; (void)t; return 0; }
+  static inline OpcUaStatus OpcUa_MutexRelease(OpcUaMutexId m)            { (void)m; return 0; }
 #endif
 
 /* ----------------------------------------------------------------------------
