@@ -1,0 +1,9 @@
+build/
+third_party/
+*.o
+*.elf
+*.bin
+*.map
+.DS_Store
+.vscode/
+.idea/

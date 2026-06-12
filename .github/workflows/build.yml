@@ -1,0 +1,61 @@
+name: CI Build
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ARM toolchain
+        uses: arduino/setup-arm-gnu-toolchain@v1
+        with:
+          release-url: https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi.tar.xz
+
+      - name: Add ARM toolchain to PATH
+        run: |
+          echo "$GITHUB_WORKSPACE/arm-toolchain/bin" >> $GITHUB_PATH
+          arm-none-eabi-gcc --version
+
+      - name: Fetch open62541 amalgamated release
+        run: |
+          mkdir -p third_party/open62541
+          curl -L -o third_party/open62541/open62541.c \
+            https://github.com/open62541/open62541/releases/download/v1.3.9/open62541.c
+          curl -L -o third_party/open62541/open62541.h \
+            https://github.com/open62541/open62541/releases/download/v1.3.9/open62541.h
+          curl -L -o third_party/open62541/LICENSE \
+            https://raw.githubusercontent.com/open62541/open62541/v1.3.9/LICENSE
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-gcc.cmake \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DUA_CONFIG_H_FILE=Inc/ua_config.h
+          echo "Configure step is a no-op stub if the project is not yet CMake-driven; the build below will compile sources directly."
+
+      - name: Compile (syntax check on host)
+        run: |
+          arm-none-eabi-gcc -c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
+            -DUA_CONFIG_H_FILE=\"ua_config.h\" \
+            -I Inc -I third_party/open62541 \
+            Src/opcua_server_task.c Src/opcua_node_model.c \
+            -o /tmp/opcua_server_task.o -o /tmp/opcua_node_model.o
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            /tmp/opcua_server_task.o
+            /tmp/opcua_node_model.o
