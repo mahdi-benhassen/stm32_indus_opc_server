@@ -5,23 +5,8 @@ Send an OPC UA Hello (HEL) message to 127.0.0.1:4840 and look for an
 Acknowledge (ACK) reply.  Used by the CI smoke test to prove the
 open62541 server is actually bound and answering.
 
-OPC UA Part 6 transport framing:
-  HELF (Hello + Final chunk):
-    type        : 3 bytes  = "HEL"
-    chunk type  : 1 byte   = 'F' (0x46)
-    size        : uint32
-    secureChanId: uint32   = 0
-    tokenId     : uint32   = 0  (only present in Hello tokens, omitted here)
-    seqNum      : uint32   = 0
-    requestId   : uint32   = 0
-    body:
-      protocolVersion : uint32 = 0
-      receiveBufferSize: uint32 = 0
-      sendBufferSize   : uint32 = 0
-      maxMessageSize   : uint32 = 0
-      maxChunkCount    : uint32 = 0
-      endpointUrlLen   : uint32
-      endpointUrl      : bytes
+The Python `opcua` package (opcua-asyncio) is the most reliable
+implementation of the OPC UA Part 6 transport framing.
 """
 
 import socket
@@ -31,14 +16,28 @@ import time
 
 
 def build_hello() -> bytes:
+    """Build a minimal OPC UA Hello message per Part 6, Section 7.1.2.3.
+
+    Message layout:
+      HELF header:  type(3)='HEL' + chunk(1)='F' + size(4) + secChanId(4)
+      SequenceHeader: seqNumber(4) + requestId(4)
+      Body:
+        protocolVersion (4)
+        receiveBufferSize (4)
+        sendBufferSize (4)
+        maxMessageSize (4)
+        maxChunkCount (4)
+        endpointUrlLength (4)
+        endpointUrl (var)
+    """
     endpoint = b"opc.tcp://127.0.0.1:4840"
-    # Body: 5 x uint32 + 1 x uint32 (len) + endpoint
-    body = struct.pack("<IIIII", 0, 0, 0, 0, 0)
+    body = struct.pack("<IIIII", 0, 65535, 65535, 0, 0)
     body += struct.pack("<I", len(endpoint)) + endpoint
-    # Header: 4 (type+chunk) + 4 (size) + 4 (secChanId) + 4 (tokenId) +
-    #         4 (seqNum) + 4 (requestId) = 24 bytes before body
-    header = b"HEL\x46" + struct.pack("<I", 24 + len(body))
-    return header + struct.pack("<IIIII", 0, 0, 0, 0, 0) + body
+
+    msg_size = 8 + 8 + len(body)  # type(3)+chunk(1)+size(4) + seqHdr(8) + body
+    header = b"HEL" + b"F" + struct.pack("<I", msg_size) + struct.pack("<I", 0)
+    seq = struct.pack("<II", 1, 1)
+    return header + seq + body
 
 
 def main() -> int:
@@ -50,15 +49,19 @@ def main() -> int:
             s.settimeout(1.0)
             s.connect(("127.0.0.1", 4840))
             s.sendall(hello)
-            data = s.recv(1024)
+            data = s.recv(4096)
             s.close()
+            if not data:
+                continue
+            print("got from server: {!r} (first 8 bytes hex: {})".format(
+                data[:32], data[:8].hex()))
             if data[:3] == b"ACK":
                 print("OPC UA server on :4840 returned ACK after {}ms - OK".format(
                     (i + 1) * 200))
                 return 0
-        except (ConnectionRefusedError, socket.timeout, OSError):
-            pass
-    print("OPC UA server did not respond on :4840 within 5s")
+        except (ConnectionRefusedError, socket.timeout, OSError) as e:
+            print("connect attempt {}: {}".format(i + 1, e))
+    print("OPC UA server did not respond with ACK on :4840 within 5s")
     return 1
 
 
