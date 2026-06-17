@@ -8,17 +8,24 @@ pair of method nodes (`ResetCounter`, `EmergencyStop`) to modern SCADA clients.
 
 ```
 Inc/
-  ua_config.h            open62541 build config (RAM-tuned for STM32F407)
-  opcua_server_task.h    FreeRTOS task + thread-safe I/O accessor API
-  opcua_node_model.h     Address-space layout (Industrial_IO folder, etc.)
-  cmsis_os_stubs.h       CI-only CMSIS-RTOS2 type stubs
+  ua_config.h               open62541 build config (RAM-tuned for STM32F407)
+  opcua_server_task.h       FreeRTOS task + thread-safe I/O accessor API
+  opcua_node_model.h        Address-space layout (Industrial_IO folder, etc.)
+  opcua_access_control.h    Access control plugin (enable via build flag)
+  cmsis_os_stubs.h          CI-only CMSIS-RTOS2 type stubs
 Src/
-  opcua_server_task.c    UA_Server_run_iterate() loop, shared I/O shadow
-  opcua_node_model.c     Folder/variable/method creation + value callbacks
-  cmsis_os_stubs.c       CI-only CMSIS-RTOS2 + driver stubs
-  main_ci.c              CI-only main() that starts and ticks the server
+  opcua_server_task.c       UA_Server_run_iterate() loop, shared I/O shadow
+  opcua_node_model.c        Folder/variable/method creation + value callbacks
+  opcua_access_control.c    Username/password access control
+  cmsis_os_stubs.c          CI-only CMSIS-RTOS2 + driver stubs
+  main_ci.c                 CI-only main() that starts and ticks the server
+tests/
+  test_opcua_server.py      Python integration test suite (asyncua)
+docs/
+  VALIDATION.md             Full validation plan (desktop, HIL, stress, security)
+  MEMORY_BUDGET.md          RAM budget estimation for the STM32F407
 .github/workflows/
-  build.yml              CI: host compile + open62541 v1.5.4 amalgamation
+  build.yml                 CI: host compile + open62541 v1.5.4 amalgamation
 ```
 
 ## Build
@@ -31,6 +38,12 @@ links FreeRTOS, lwIP and the HAL drivers.  Add the amalgamated
 -DOPCUA_EMBEDDED_TARGET=1
 -DUA_CONFIG_H_FILE="ua_config.h"
 ```
+
+Optional build flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `OPCUA_ENABLE_ACCESS_CONTROL` | 0 | Set to 1 to enforce username/password login |
 
 in the C preprocessor symbols.  The `OPCUA_EMBEDDED_TARGET` switch routes
 the build to the FreeRTOS / lwIP / CMSIS code paths instead of the host
@@ -149,6 +162,43 @@ Objects/
 ```
 
 Default endpoint: `opc.tcp://<gateway-ip>:4840`, security policy `None`.
+
+## Access control
+
+Access control is disabled by default (anonymous login).  To enable
+username/password authentication, add `-DOPCUA_ENABLE_ACCESS_CONTROL=1`
+to the build and change the default credentials in
+`Inc/opcua_access_control.h`.  See `docs/VALIDATION.md` Section 4 for
+the full security hardening procedure.
+
+## Validation
+
+The full validation plan is in [`docs/VALIDATION.md`](docs/VALIDATION.md)
+and covers 5 phases:
+
+1. **Desktop validation** — build and run the Python test suite on a PC.
+2. **Hardware-in-the-loop** — flash to the board, verify I/O with UaExpert.
+3. **Stress testing** — 24-hour load, network drops, power cycling.
+4. **Security hardening** — encryption, access control, network lockdown.
+5. **Factory acceptance test** — final validation with the customer's SCADA.
+
+A Python integration test suite is provided in
+[`tests/test_opcua_server.py`](tests/test_opcua_server.py).  Run it
+against either the CI host build or the real hardware:
+
+```bash
+pip3 install asyncua
+
+# Against the CI host build
+/tmp/opcua_server &
+python3 tests/test_opcua_server.py
+
+# Against the hardware
+python3 tests/test_opcua_server.py --url opc.tcp://192.168.1.100:4840
+```
+
+The RAM budget for the STM32F407's 192 KB is analysed in
+[`docs/MEMORY_BUDGET.md`](docs/MEMORY_BUDGET.md).
 
 ## CI
 

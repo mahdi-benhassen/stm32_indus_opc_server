@@ -237,6 +237,7 @@ static UA_StatusCode
 addCallbackVar(UA_Server *s, UA_NodeId parent, const char *name,
                UA_NodeId requestedId, UA_NodeId typeId,
                UA_Byte accessLevel,
+               UA_Double samplingInterval,
                UA_StatusCode (*readFn)(UA_Server*, const UA_NodeId*, void*,
                                        const UA_NodeId*, void*,
                                        UA_Boolean, const UA_NumericRange*,
@@ -252,6 +253,12 @@ addCallbackVar(UA_Server *s, UA_NodeId parent, const char *name,
     va.dataType    = typeId;
     va.valueRank   = UA_VALUERANK_SCALAR;
     va.accessLevel = accessLevel;
+    /* MinimumSamplingInterval caps how often a MonitoredItem samples
+     * the variable.  Without this, 3 SCADA clients subscribing to 36
+     * variables at 50 ms would generate 2160 notifications/second and
+     * saturate the lwIP TCP window.  200 ms = 5 Hz per variable is
+     * adequate for industrial I/O. */
+    va.minimumSamplingInterval = samplingInterval;
 
     /* Initialise the value so the server has a sane scalar to return
      * before the first callback fires. */
@@ -345,57 +352,63 @@ UA_StatusCode OpcUaNodeModel_Build(UA_Server *server)
     if ((r = addObjectFolder(server, industrialIO, "Relays",         &rlFolder)) != UA_STATUSCODE_GOOD) return r;
     if ((r = addObjectFolder(server, industrialIO, "Methods",        &mtFolder)) != UA_STATUSCODE_GOOD) return r;
 
-    /* DI: read-only booleans. */
+    /* DI: read-only booleans, 200 ms sampling (5 Hz). */
     for (uint8_t i = 0; i < IO_DI_COUNT; i++) {
         char name[12];
         snprintf(name, sizeof(name), "DI_%02u", (unsigned)i);
         r = addCallbackVar(server, diFolder, name, nodeId(ID_DI_BASE + i),
                            UA_NS0ID(BOOLEAN),
                            UA_ACCESSLEVELMASK_READ,
+                           200.0,
                            cb_ReadBoolean, NULL);
         if (r != UA_STATUSCODE_GOOD) return r;
     }
 
-    /* DO: read/write booleans. */
+    /* DO: read/write booleans, 200 ms sampling. */
     for (uint8_t i = 0; i < IO_DO_COUNT; i++) {
         char name[12];
         snprintf(name, sizeof(name), "DO_%02u", (unsigned)i);
         r = addCallbackVar(server, doFolder, name, nodeId(ID_DO_BASE + i),
                            UA_NS0ID(BOOLEAN),
                            UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE,
+                           200.0,
                            cb_ReadBoolean, cb_WriteBoolean);
         if (r != UA_STATUSCODE_GOOD) return r;
     }
 
-    /* AI: read-only Int32. */
+    /* AI: read-only Int32, 500 ms sampling (2 Hz — analog sensors
+     * change slowly, no need for 5 Hz). */
     for (uint8_t i = 0; i < IO_AI_COUNT; i++) {
         char name[12];
         snprintf(name, sizeof(name), "AI_%02u", (unsigned)i);
         r = addCallbackVar(server, aiFolder, name, nodeId(ID_AI_BASE + i),
                            UA_NS0ID(INT32),
                            UA_ACCESSLEVELMASK_READ,
+                           500.0,
                            cb_ReadInt32, NULL);
         if (r != UA_STATUSCODE_GOOD) return r;
     }
 
-    /* AO: read/write Int32. */
+    /* AO: read/write Int32, 500 ms sampling. */
     for (uint8_t i = 0; i < IO_AO_COUNT; i++) {
         char name[12];
         snprintf(name, sizeof(name), "AO_%02u", (unsigned)i);
         r = addCallbackVar(server, aoFolder, name, nodeId(ID_AO_BASE + i),
                            UA_NS0ID(INT32),
                            UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE,
+                           500.0,
                            cb_ReadInt32, cb_WriteInt32);
         if (r != UA_STATUSCODE_GOOD) return r;
     }
 
-    /* Relays: read/write booleans. */
+    /* Relays: read/write booleans, 200 ms sampling. */
     for (uint8_t i = 0; i < IO_RELAY_COUNT; i++) {
         char name[12];
         snprintf(name, sizeof(name), "RLY_%02u", (unsigned)i);
         r = addCallbackVar(server, rlFolder, name, nodeId(ID_RELAY_BASE + i),
                            UA_NS0ID(BOOLEAN),
                            UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE,
+                           200.0,
                            cb_ReadBoolean, cb_WriteBoolean);
         if (r != UA_STATUSCODE_GOOD) return r;
     }

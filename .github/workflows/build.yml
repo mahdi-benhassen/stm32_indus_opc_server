@@ -58,6 +58,7 @@ jobs:
                   -Wno-implicit-function-declaration"
           gcc $CFLAGS Src/opcua_server_task.c -o /tmp/opcua_server_task.o
           gcc $CFLAGS Src/opcua_node_model.c   -o /tmp/opcua_node_model.o
+          gcc $CFLAGS Src/opcua_access_control.c -o /tmp/opcua_access_control.o
           gcc $CFLAGS Src/main_ci.c            -o /tmp/main_ci.o
           gcc -c -O0 -g -I Inc -DUA_CONFIG_H_FILE='"ua_config.h"' -I third_party/open62541 \
             Src/cmsis_os_stubs.c -o /tmp/cmsis_os_stubs.o
@@ -70,6 +71,7 @@ jobs:
             /tmp/open62541.o \
             /tmp/opcua_server_task.o \
             /tmp/opcua_node_model.o \
+            /tmp/opcua_access_control.o \
             /tmp/cmsis_os_stubs.o \
             /tmp/main_ci.o \
             -lpthread -lm \

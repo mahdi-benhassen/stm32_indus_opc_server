@@ -21,6 +21,7 @@
 
 #include "opcua_server_task.h"
 #include "opcua_node_model.h"
+#include "opcua_access_control.h"
 
 #include <string.h>
 #include <stdint.h>
@@ -216,24 +217,27 @@ void OpcUa_Hw_UpdateAIFromISR(uint8_t ch, int32_t v)
 /* ----------------------------------------------------------------------------
  * open62541 logger - v1.5.4 UA_Logger signature
  *
- * NOTE: open62541 v1.5.4 uses custom format specifiers (%S for UA_String,
+ * open62541 v1.5.4 uses custom format specifiers (%S for UA_String,
  * %N for NodeId, %Q for QualifiedName) that standard vsnprintf does NOT
- * understand.  Messages containing those specifiers will produce garbled
- * output.  For production, replace this with UA_String_vformat or a
- * dedicated RTT/UART logger plugin.  For now we truncate to 160 chars.
+ * understand.  We use UA_String_vformat to format the message into a
+ * UA_String, then pass the raw bytes to the UART/RTT output.
  * ---------------------------------------------------------------------------- */
 static void OpcUa_Log(void *ctx, UA_LogLevel level, UA_LogCategory category,
                       const char *msg, va_list args)
 {
     (void)ctx; (void)level; (void)category;
 #if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
-    char buf[160];
-    int n = vsnprintf(buf, sizeof(buf), msg, args);
-    if (n < 0) return;
-    if (n >= (int)sizeof(buf)) n = sizeof(buf) - 1;
-    extern void Log_Print(const char *s, uint16_t len);
-    Log_Print(buf, (uint16_t)n);
+    UA_String formatted = UA_STRING_NULL;
+    UA_StatusCode r = UA_String_vformat(&formatted, msg, args);
+    if (r == UA_STATUSCODE_GOOD && formatted.length > 0) {
+        extern void Log_Print(const char *s, uint16_t len);
+        Log_Print((const char *)formatted.data, (uint16_t)formatted.length);
+    }
+    UA_String_clear(&formatted);
 #else
+    /* CI build: just print to stdout for debugging. */
+    vprintf(msg, args);
+    printf("\n");
     (void)msg; (void)args;
 #endif
 }
@@ -273,6 +277,11 @@ int32_t OpcUaServer_Init(void)
     if (r != UA_STATUSCODE_GOOD) return -2;
 
     config.logging = &g_opcuaLogger;
+
+#if OPCUA_ENABLE_ACCESS_CONTROL
+    /* Enforce username/password authentication when enabled. */
+    OpcUa_AccessControl_Configure(&config);
+#endif
 
     /* 3. Create the server.  This actually starts the event loop
      *    and binds the listener socket on OPCUA_SERVER_PORT. */
