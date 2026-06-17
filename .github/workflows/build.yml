@@ -63,19 +63,6 @@ jobs:
             Src/cmsis_os_stubs.c -o /tmp/cmsis_os_stubs.o
           ls -l /tmp/*.o
 
-      - name: "Diagnostic: inspect the port arg in the compiled .o"
-        run: |
-          set -e
-          echo "=== OpcUaServer_Init disassembly (first 30 mov/call/jmp) ==="
-          objdump -d /tmp/opcua_server_task.o \
-            | awk '/<OpcUaServer_Init>:/{flag=1} flag; /^$/{flag=0}' \
-            | grep -E 'mov|call|jmp' | head -30
-          echo "---"
-          echo "=== Preprocessed setMinimal call ==="
-          gcc -E -DUA_CONFIG_H_FILE='"ua_config.h"' -I Inc -I third_party/open62541 \
-            Src/opcua_server_task.c \
-            | grep -E 'setMinimal' | head -3
-
       - name: Link executable (host)
         run: |
           set -e

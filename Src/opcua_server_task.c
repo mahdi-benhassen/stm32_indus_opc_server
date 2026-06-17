@@ -11,9 +11,11 @@
  *                          vOpcUaServerTask.
  *
  *   vOpcUaServerTask
+ *       UA_Server_run_startup(server)
  *       for(;;) {
  *           UA_Server_run_iterate(server, true);  // wait for messages
  *           osDelay(OPCUA_TASK_PERIOD_MS);
+ *           IWDG_Refresh();                        // kick the watchdog
  *       }
  */
 
@@ -30,6 +32,7 @@
   #include "FreeRTOS.h"
   #include "cmsis_os.h"
   #include <stdio.h>
+  #include "stm32f4xx_hal.h"   /* HAL_IWDG_Refresh */
 #endif
 
 /* ----------------------------------------------------------------------------
@@ -46,9 +49,9 @@ static const osMutexAttr_t g_IoRegMutex_attr = {
     .cb_mem    = NULL,
     .cb_size   = 0U
 };
-OpcUaMutexId g_IoRegMutexHandle;
+static OpcUaMutexId g_IoRegMutexHandle;
 #else
-OpcUaMutexId g_IoRegMutexHandle = (OpcUaMutexId)0;
+static OpcUaMutexId g_IoRegMutexHandle = (OpcUaMutexId)0;
 #endif
 
 /* ----------------------------------------------------------------------------
@@ -71,6 +74,11 @@ static IoShadow_t s_shadow;
 
 /* ----------------------------------------------------------------------------
  * Thread-safe accessors
+ *
+ * All shadow reads/writes are protected by g_IoRegMutexHandle.  Hardware
+ * driver calls happen OUTSIDE the mutex to keep the critical section short,
+ * EXCEPT for EmergencyStop which holds the mutex across all writes to
+ * guarantee atomicity.
  * ---------------------------------------------------------------------------- */
 uint8_t OpcUa_Hw_ReadDI(uint8_t ch)
 {
@@ -141,7 +149,58 @@ void OpcUa_Hw_WriteRelay(uint8_t ch, uint8_t v)
 #endif
 }
 
+/* Read back the DO shadow value (used by the OPC UA read callback).
+ * Separate from OpcUa_Hw_WriteDO which is the write path. */
+uint8_t OpcUa_Hw_ReadDO(uint8_t ch)
+{
+    if (ch >= 8) return 0;
+    OpcUa_MutexAcquire(g_IoRegMutexHandle, OPCUA_OS_WAIT_FOREVER);
+    uint8_t v = s_shadow.do_[ch];
+    OpcUa_MutexRelease(g_IoRegMutexHandle);
+    return v;
+}
+
+/* Read back the AO shadow value (used by the OPC UA read callback). */
+int32_t OpcUa_Hw_ReadAO(uint8_t ch)
+{
+    if (ch >= 8) return 0;
+    OpcUa_MutexAcquire(g_IoRegMutexHandle, OPCUA_OS_WAIT_FOREVER);
+    int32_t v = s_shadow.ao[ch];
+    OpcUa_MutexRelease(g_IoRegMutexHandle);
+    return v;
+}
+
+/* ----------------------------------------------------------------------------
+ * Atomic emergency-stop: hold the IO mutex across ALL writes so a
+ * concurrent SCADA write cannot leave an output ON between iterations.
+ * This is safety-critical — do NOT split into individual OpcUa_Hw_Write
+ * calls.
+ * ---------------------------------------------------------------------------- */
+void OpcUa_Hw_EmergencyStopAll(void)
+{
+    OpcUa_MutexAcquire(g_IoRegMutexHandle, OPCUA_OS_WAIT_FOREVER);
+    for (uint8_t i = 0; i < 8; i++)
+        s_shadow.do_[i] = 0;
+    for (uint8_t i = 0; i < 4; i++)
+        s_shadow.relay[i] = 0;
+    OpcUa_MutexRelease(g_IoRegMutexHandle);
+
 #if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
+    extern void DO_Driver_Set(uint8_t channel, uint8_t value);
+    extern void RELAY_Driver_Set(uint8_t channel, uint8_t value);
+    for (uint8_t i = 0; i < 8; i++)
+        DO_Driver_Set(i, 0);
+    for (uint8_t i = 0; i < 4; i++)
+        RELAY_Driver_Set(i, 0);
+#endif
+}
+
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
+/* ISR-side helpers - only meaningful on the real target.
+ * On Cortex-M4, aligned 8-bit and 32-bit stores are atomic, so these
+ * can safely update the shadow without the mutex (the ISR cannot block).
+ * The OPC UA callbacks sample under the mutex and will pick up the new
+ * value on the next read. */
 void OpcUa_Hw_UpdateDIFromISR(uint8_t ch, uint8_t v)
 {
     if (ch >= 8) return;
@@ -156,11 +215,17 @@ void OpcUa_Hw_UpdateAIFromISR(uint8_t ch, int32_t v)
 
 /* ----------------------------------------------------------------------------
  * open62541 logger - v1.5.4 UA_Logger signature
+ *
+ * NOTE: open62541 v1.5.4 uses custom format specifiers (%S for UA_String,
+ * %N for NodeId, %Q for QualifiedName) that standard vsnprintf does NOT
+ * understand.  Messages containing those specifiers will produce garbled
+ * output.  For production, replace this with UA_String_vformat or a
+ * dedicated RTT/UART logger plugin.  For now we truncate to 160 chars.
  * ---------------------------------------------------------------------------- */
 static void OpcUa_Log(void *ctx, UA_LogLevel level, UA_LogCategory category,
                       const char *msg, va_list args)
 {
-    (void)ctx; (void)level; (void)category; (void)msg; (void)args;
+    (void)ctx; (void)level; (void)category;
 #if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
     char buf[160];
     int n = vsnprintf(buf, sizeof(buf), msg, args);
@@ -168,6 +233,8 @@ static void OpcUa_Log(void *ctx, UA_LogLevel level, UA_LogCategory category,
     if (n >= (int)sizeof(buf)) n = sizeof(buf) - 1;
     extern void Log_Print(const char *s, uint16_t len);
     Log_Print(buf, (uint16_t)n);
+#else
+    (void)msg; (void)args;
 #endif
 }
 
@@ -186,6 +253,8 @@ static UA_Logger g_opcuaLogger = {
  * bound to port 4840) would be too late: the event loop would have
  * already started and bound 4840, so a later setMinimal() would
  * merely warn and have no effect.
+ *
+ * On error, the UA_Server is deleted so no memory is leaked.
  * ---------------------------------------------------------------------------- */
 int32_t OpcUaServer_Init(void)
 {
@@ -210,8 +279,13 @@ int32_t OpcUaServer_Init(void)
     g_opcuaServer = UA_Server_newWithConfig(&config);
     if (!g_opcuaServer) return -3;
 
-    /* 4. Build the address space. */
-    if (OpcUaNodeModel_Build(g_opcuaServer) != UA_STATUSCODE_GOOD) return -4;
+    /* 4. Build the address space.  On failure, delete the server
+     *    to avoid leaking the UA_Server and its nodestore. */
+    if (OpcUaNodeModel_Build(g_opcuaServer) != UA_STATUSCODE_GOOD) {
+        UA_Server_delete(g_opcuaServer);
+        g_opcuaServer = NULL;
+        return -4;
+    }
 
     /* 5. Spawn the FreeRTOS task that drives the server. */
 #if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
@@ -224,7 +298,11 @@ int32_t OpcUaServer_Init(void)
             .cb_size    = 0U
         };
         g_opcuaTaskHandle = osThreadNew(vOpcUaServerTask, NULL, &taskAttr);
-        if (!g_opcuaTaskHandle) return -5;
+        if (!g_opcuaTaskHandle) {
+            UA_Server_delete(g_opcuaServer);
+            g_opcuaServer = NULL;
+            return -5;
+        }
     }
 #else
     (void)vOpcUaServerTask;
@@ -237,14 +315,15 @@ int32_t OpcUaServer_Init(void)
 
 /* ----------------------------------------------------------------------------
  * Server task body
+ *
+ * run_startup is called once before the iterate loop; it starts the
+ * binary protocol manager which opens the listening socket.  The loop
+ * then drives the EventLoop and kicks the IWDG watchdog each iteration.
  * ---------------------------------------------------------------------------- */
 void vOpcUaServerTask(void *argument)
 {
     (void)argument;
 
-    /* run_startup must be called once before the iterate loop; it
-     * starts the binary protocol manager which opens the listening
-     * socket on OPCUA_SERVER_PORT. */
     UA_StatusCode sr = UA_Server_run_startup(g_opcuaServer);
     if (sr != UA_STATUSCODE_GOOD) {
         g_opcuaRunning = 0;
@@ -253,11 +332,20 @@ void vOpcUaServerTask(void *argument)
     while (g_opcuaRunning) {
         UA_Server_run_iterate(g_opcuaServer, true);
         osDelay(OPCUA_TASK_PERIOD_MS);
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
+        /* Kick the independent watchdog so a deadlock in open62541
+         * triggers a hardware reset rather than an indefinite hang. */
+        extern IWDG_HandleTypeDef hiwdg;
+        HAL_IWDG_Refresh(&hiwdg);
+#endif
     }
+
     UA_Server_run_shutdown(g_opcuaServer);
     UA_Server_delete(g_opcuaServer);
     g_opcuaServer = NULL;
-    osThreadTerminate(osThreadGetId());
+    /* Do NOT call osThreadTerminate(self) — just return.  The CMSIS-RTOS2
+     * wrapper calls vTaskDelete(NULL) when the task function returns,
+     * which is the safe FreeRTOS pattern. */
 }
 
 void OpcUaServer_Stop(void)

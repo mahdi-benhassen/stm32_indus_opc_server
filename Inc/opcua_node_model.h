@@ -33,8 +33,14 @@
 #define IO_AO_COUNT    8
 #define IO_RELAY_COUNT 4
 
+/* Namespace URI for the Industrial_IO model.  Registered with the server
+ * at build time; the actual namespace index is resolved at runtime. */
+#define IO_NAMESPACE_URI  "urn:stm32_indus_opc_server:Industrial_IO"
+
 /* Build the entire address space and attach value-callbacks to each
- * variable.  Called from OpcUaServer_Init() before the server is run. */
+ * variable.  Called from OpcUaServer_Init() before the server is run.
+ * Returns UA_STATUSCODE_GOOD on success, an error code on failure (any
+ * partially-built nodes are cleaned up when the caller deletes the server). */
 UA_StatusCode OpcUaNodeModel_Build(UA_Server *server);
 
 #endif /* OPCUA_NODE_MODEL_H_ */

@@ -3,7 +3,7 @@
  *
  * Local copy of the CMSIS-RTOS2 types used by the application, used
  * ONLY by the CI build where the real CMSIS pack is not present.
- * Define OPCUA_USE_CMSIS_OS=1 on the STM32CubeIDE build to use the
+ * Define OPCUA_EMBEDDED_TARGET=1 on the STM32CubeIDE build to use the
  * real cmsis_os.h instead.
  */
 

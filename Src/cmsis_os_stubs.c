@@ -50,7 +50,6 @@ osThreadId_t osThreadGetId(void)
 osStatus_t osThreadTerminate(osThreadId_t id)
 {
     (void)id;
-    for (;;) { /* halt */ }
     return 0;
 }
 

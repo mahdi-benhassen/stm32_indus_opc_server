@@ -11,10 +11,12 @@ Inc/
   ua_config.h            open62541 build config (RAM-tuned for STM32F407)
   opcua_server_task.h    FreeRTOS task + thread-safe I/O accessor API
   opcua_node_model.h     Address-space layout (Industrial_IO folder, etc.)
+  cmsis_os_stubs.h       CI-only CMSIS-RTOS2 type stubs
 Src/
   opcua_server_task.c    UA_Server_run_iterate() loop, shared I/O shadow
   opcua_node_model.c     Folder/variable/method creation + value callbacks
-  cmsis_os_stubs.c       CI-only stubs; on the target CMSIS-RTOS2 is linked
+  cmsis_os_stubs.c       CI-only CMSIS-RTOS2 + driver stubs
+  main_ci.c              CI-only main() that starts and ticks the server
 .github/workflows/
   build.yml              CI: host compile + open62541 v1.5.4 amalgamation
 ```
@@ -155,8 +157,9 @@ Default endpoint: `opc.tcp://<gateway-ip>:4840`, security policy `None`.
 1. Installs `build-essential`, `libmbedtls-dev`.
 2. Downloads the open62541 v1.5.4 amalgamated release into
    `third_party/`.
-3. Compiles the amalgamation plus the two application translation units
-   on a host `gcc` and partially links them with `ld -r`.  This catches
-   type / signature mismatches between our code and the amalgamation
-   without needing the full FreeRTOS / lwIP stack on the runner.
-4. Uploads the resulting `.o` files as build artifacts.
+3. Compiles the amalgamation plus the application translation units
+   on a host `gcc` and links them into a runnable ELF (`/tmp/opcua_server`).
+   This catches type / signature mismatches between our code and the
+   amalgamation without needing the full FreeRTOS / lwIP stack on the
+   runner.
+4. Uploads the resulting ELF as a build artifact (`opcua-server-elf`).

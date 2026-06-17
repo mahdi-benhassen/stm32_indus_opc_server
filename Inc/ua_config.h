@@ -16,26 +16,28 @@
 
 /* -------------------------------------------------------------------------- */
 /* Platform identification                                                     */
+/*                                                                            */
+/* Exactly ONE architecture must be defined.  The CI host build uses POSIX;   */
+/* the STM32 target uses FreeRTOS + lwIP.  OPCUA_EMBEDDED_TARGET is set by    */
+/* the STM32CubeIDE project and selects the right architecture here.          */
 /* -------------------------------------------------------------------------- */
-#define UA_ARCHITECTURE_POSIX
-/* Force the amalgamated build to emit the "freertos" / single-thread style:    */
-/* we drive the server from a single FreeRTOS task so we do NOT need its       */
-/* internal pthreads / epoll wrappers.                                         */
-#define UA_ARCHITECTURE_FREERTOS
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
+  #define UA_ARCHITECTURE_FREERTOS
+  #define UA_ARCHITECTURE_LWIP
+#else
+  #define UA_ARCHITECTURE_POSIX
+#endif
 
 /* -------------------------------------------------------------------------- */
 /* Feature toggles  (smaller footprint, no discovery, no encryption)           */
 /* -------------------------------------------------------------------------- */
-/* Logging verbosity is configured at runtime via UA_Logger; we leave the
- * UA_LOGLEVEL macro at open62541's default to avoid clashing with their
- * internal enum tags. */
 #define UA_ENABLE_METHODCALLS    1     /* We use Method nodes                */
-#define UA_ENABLE_NODEMANAGEMENT 1
+#define UA_ENABLE_NODEMANAGEMENT 0     /* Static address space only - safety */
 #define UA_ENABLE_SUBSCRIPTIONS  1     /* DataChange needed for SCADA push   */
 #define UA_ENABLE_SUBSCRIPTIONS_EVENTS 0
 #define UA_ENABLE_PUBSUB         0     /* No Pub/Sub over UDP - we use TCP   */
 #define UA_ENABLE_DISCOVERY      0     /* No LDS, manual endpoint config     */
-#define UA_ENABLE_DA             1
+#define UA_ENABLE_DA             0     /* No Data Access alarms              */
 #define UA_ENABLE_ENCRYPTION     0     /* No PKI / certs in this build       */
 #define UA_ENABLE_HISTORIZING    0     /* No history DB                      */
 #define UA_ENABLE_MICRO_EMB_DEV_PROFILE 0
@@ -47,26 +49,30 @@
 #define UA_ENABLE_ACCESSCONTROL 0
 #endif
 
-/* No JSON encoding, no status codes beyond minimum set. */
+/* No JSON encoding. */
 #define UA_ENABLE_JSON_ENCODING 0
 
 /* -------------------------------------------------------------------------- */
 /* Memory limits  (key knobs for RAM footprint)                               */
+/*                                                                            */
+/* UA_MAXMESSAGEBYTESTOBUFFERED must be >= 8192 per OPC UA Part 6 §6.7.1.     */
+/* Using 16384 gives headroom while keeping per-connection RAM under 32 KB.   */
 /* -------------------------------------------------------------------------- */
 
-/* Hard cap on simultaneous sessions. 3 is plenty for one SCADA + one
- * engineering tool. */
-#define UA_MAXSESSIONCOUNT  3
+/* Hard cap on simultaneous sessions. 4 allows SCADA + engineering tool +    */
+/* one reconnect overlap.                                                     */
+#define UA_MAXSESSIONCOUNT  4
 
-/* Subscription limits. SCADA polls + 1 monitored item per variable is fine. */
+/* Subscription limits. 36 variables × 3 clients = 108 monitored items;      */
+/* round up to 128.                                                           */
 #define UA_MAXSUBSCRIPTIONCOUNT  4
-#define UA_MAXMONITOREDITEMCOUNT 64
+#define UA_MAXMONITOREDITEMCOUNT 128
 
-/* Chunking - reduce to lower per-message heap. */
-#define UA_MAXMESSAGEBYTESTOBUFFERED  4096
-#define UA_MAXMESSAGEBODYSIZE         4096
+/* Chunking - must be >= 8192 (OPC UA Part 6 minimum chunk size).            */
+#define UA_MAXMESSAGEBYTESTOBUFFERED  16384
+#define UA_MAXMESSAGEBODYSIZE         16384
 #define UA_MAXMESSAGECHUNKS           4
-#define UA_MAXCHUNKPATCHSIZE          1024
+#define UA_MAXCHUNKPATCHSIZE          2048
 
 /* Server / SecureChannel limits. */
 #define UA_MAXSECURECHANNELID         40
@@ -79,9 +85,11 @@
 #define UA_NODESTORE_MAXSIZE 256
 #endif
 
-/* String / ByteString limits - DI/DO/AO names are short, this is enough. */
-#define UA_MAXSTRINGLENGTH 128
-#define UA_MAXBYTESTRINGLENGTH 128
+/* String / ByteString limits.  The standard Server object has strings       */
+/* (ApplicationUri, ProductUri, etc.) that can exceed 128 bytes; 256 is a    */
+/* safe minimum.                                                              */
+#define UA_MAXSTRINGLENGTH 256
+#define UA_MAXBYTESTRINGLENGTH 256
 
 /* -------------------------------------------------------------------------- */
 /* Custom memory allocator - bridge to FreeRTOS heap_4 or heap_5.              */

@@ -9,7 +9,7 @@
  * The public surface uses simple portable types (uint32_t, void*) so the
  * file compiles equally well against:
  *   - the real CMSIS-RTOS2 + FreeRTOS + open62541 (STM32CubeIDE)
- *   - the local CMSIS-RTOS2 stubs + libc + open62541_stub.h (CI build)
+ *   - the local CMSIS-RTOS2 stubs + libc (CI build)
  *
  * Define OPCUA_EMBEDDED_TARGET=1 on the STM32CubeIDE build.
  */
@@ -71,10 +71,18 @@
 /* Thread-safe IO helpers exposed for the node-model callbacks. */
 uint8_t  OpcUa_Hw_ReadDI   (uint8_t channel);
 void     OpcUa_Hw_WriteDO  (uint8_t channel, uint8_t value);
+uint8_t  OpcUa_Hw_ReadDO   (uint8_t channel);
 int32_t  OpcUa_Hw_ReadAI   (uint8_t channel);
 void     OpcUa_Hw_WriteAO  (uint8_t channel, int32_t value);
+int32_t  OpcUa_Hw_ReadAO   (uint8_t channel);
 uint8_t  OpcUa_Hw_ReadRelay (uint8_t channel);
 void     OpcUa_Hw_WriteRelay(uint8_t channel, uint8_t value);
+
+/* Atomic batch write for safety-critical operations (e-stop).
+ * Takes the IO mutex once, sets all DOs and Relays to 0, drives the
+ * hardware, then releases.  Prevents a concurrent SCADA write from
+ * leaving an output ON between individual writes. */
+void     OpcUa_Hw_EmergencyStopAll(void);
 
 /* Server lifecycle. */
 int32_t  OpcUaServer_Init (void);
