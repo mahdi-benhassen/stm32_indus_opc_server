@@ -3,13 +3,9 @@
  *
  * Username/password access control plugin for the OPC UA server.
  *
- * Uses open62541's UA_AccessControl_default as the base, then overrides
- * the authentication callback to enforce username/password login.
- *
- * On the STM32 target, credentials should be stored in a persistent
- * memory region (flash sector or EEPROM).  For the pilot build, the
- * credentials are compiled in via OPCUA_DEFAULT_USER /
- * OPCUA_DEFAULT_PASSWORD.
+ * Uses open62541's UA_AccessControl_default with a compiled-in
+ * credential list.  On the STM32 target, credentials should be stored
+ * in persistent memory (flash sector or EEPROM) and loaded at startup.
  */
 
 #include "opcua_access_control.h"
@@ -17,42 +13,18 @@
 #include <string.h>
 
 /* -------------------------------------------------------------------------- */
-/* Internal state                                                              */
+/* Credential table                                                            */
+/*                                                                            */
+/* UA_UsernamePasswordLogin is { UA_String username; UA_String password; }    */
+/* in open62541 v1.5.4.  We use UA_STRING_STATIC so no heap allocation is     */
+/* needed for the credential strings.                                         */
 /* -------------------------------------------------------------------------- */
-static const char *s_users[] = {
-    OPCUA_DEFAULT_USER
+static const UA_UsernamePasswordLogin s_logins[] = {
+    { UA_STRING_STATIC(OPCUA_DEFAULT_USER),
+      UA_STRING_STATIC(OPCUA_DEFAULT_PASSWORD) }
 };
-static const char *s_passwords[] = {
-    OPCUA_DEFAULT_PASSWORD
-};
-static const size_t s_numUsers =
-    sizeof(s_users) / sizeof(s_users[0]);
-
-/* -------------------------------------------------------------------------- */
-/* Authentication callback                                                     */
-/* -------------------------------------------------------------------------- */
-static UA_StatusCode
-authenticate(const UA_NodeId *sessionId, void *sessionContext,
-             const UA_ExtensionObject *userIdentityToken,
-             void **sessionHandle)
-{
-    (void)sessionContext;
-
-    /* Only support username/password tokens */
-    if (userIdentityToken->content.encoded.type == NULL)
-        return UA_STATUSCODE_BADIDENTITYTOKENINVALID;
-
-    /* Check if it's an anonymous token */
-    if (userIdentityToken->encoding == UA_EXTENSIONOBJECT_DECODED) {
-        const UA_DataType *type = userIdentityToken->content.decoded.type;
-        if (type == &UA_TYPES[UA_TYPES_ANONYMOUSIDENTITYTOKEN]) {
-            /* Anonymous login is rejected when access control is on */
-            return UA_STATUSCODE_BADIDENTITYTOKENINVALID;
-        }
-    }
-
-    return UA_STATUSCODE_GOOD;
-}
+static const size_t s_numLogins =
+    sizeof(s_logins) / sizeof(s_logins[0]);
 
 /* -------------------------------------------------------------------------- */
 /* Public API                                                                  */
@@ -61,18 +33,19 @@ void OpcUa_AccessControl_Configure(UA_ServerConfig *cfg)
 {
     if (!cfg) return;
 
-    /* The UA_AccessControl_default plugin provides the standard
-     * access control callbacks.  We pass the user list so it can
-     * enforce username/password authentication. */
+    /* UA_AccessControl_default installs the standard access control
+     * callbacks and enforces username/password authentication using
+     * the provided login table.  Pass allowAnonymous=false to reject
+     * anonymous connections. */
     UA_StatusCode r = UA_AccessControl_default(
         cfg,
         false,              /* anonymous login NOT allowed */
-        NULL,               /* no login callback */
-        s_numUsers,
-        NULL);              /* let the plugin handle token validation */
+        NULL,               /* no custom user token policy URI */
+        s_numLogins,
+        s_logins);
 
     if (r != UA_STATUSCODE_GOOD) {
-        /* If access control setup fails, the server is still usable
-         * but logs a warning.  In production, this should be fatal. */
+        /* If access control setup fails, log it.  In production,
+         * this should be treated as a fatal error. */
     }
 }
