@@ -49,17 +49,27 @@ in the C preprocessor symbols.  The `OPCUA_EMBEDDED_TARGET` switch routes
 the build to the FreeRTOS / lwIP / CMSIS code paths instead of the host
 stubs.
 
-### CMake command line (alternative to STM32CubeIDE)
+### Command line (alternative to STM32CubeIDE)
+
+Compile each translation unit separately, then link with the
+target's startup code and linker script:
 
 ```bash
-arm-none-eabi-gcc -c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
+CFLAGS="-c -mcpu=cortex-m4 -mfloat-abi=soft -mthumb \
     -DOPCUA_EMBEDDED_TARGET=1 \
-    -DUA_CONFIG_H_FILE='"ua_config.h"' \
+    -DUA_CONFIG_H_FILE='\"ua_config.h\"' \
     -I Inc -I third_party/open62541 \
-    -ffunction-sections -fdata-sections \
-    Src/opcua_server_task.c Src/opcua_node_model.c \
-    third_party/open62541/open62541.c \
-    -o firmware.elf
+    -ffunction-sections -fdata-sections"
+
+arm-none-eabi-gcc $CFLAGS Src/opcua_server_task.c    -o build/opcua_server_task.o
+arm-none-eabi-gcc $CFLAGS Src/opcua_node_model.c      -o build/opcua_node_model.o
+arm-none-eabi-gcc $CFLAGS Src/opcua_access_control.c  -o build/opcua_access_control.o
+arm-none-eabi-gcc $CFLAGS third_party/open62541/open62541.c -o build/open62541.o
+
+arm-none-eabi-gcc -mcpu=cortex-m4 -mfloat-abi=soft -mthumb -T STM32F407.ld \
+    --specs=nano.specs --specs=nosys.specs \
+    build/*.o startup_stm32f407xx.o system_stm32f4xx.o \
+    -lfreertos -llwip -lhal -o firmware.elf
 ```
 
 ## Flashing the STM32F407

@@ -66,6 +66,7 @@
  * ---------------------------------------------------------------------------- */
 #define OPCUA_TASK_STACK_BYTES   (16 * 1024UL)   /* 16 KB, monitor with uxTaskGetStackHighWaterMark */
 #define OPCUA_TASK_PERIOD_MS     50              /* 20 Hz server tick       */
+#define OPCUA_TASK_PRIORITY      (osPriorityAboveNormal)
 #define OPCUA_SERVER_PORT        4840
 
 /* Thread-safe IO helpers exposed for the node-model callbacks. */
@@ -88,6 +89,7 @@ void     OpcUa_Hw_EmergencyStopAll(void);
 int32_t  OpcUaServer_Init (void);
 void     vOpcUaServerTask(void *argument);
 void     OpcUaServer_Stop (void);
+void     OpcUaServer_Destroy(void);
 
 /* Return the live UA_Server* (only meaningful after OpcUaServer_Init). */
 void    *OpcUaServer_GetHandle(void);

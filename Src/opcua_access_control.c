@@ -11,6 +11,7 @@
 #include "opcua_access_control.h"
 
 #include <string.h>
+#include <stdio.h>
 
 /* -------------------------------------------------------------------------- */
 /* Credential table                                                            */
@@ -45,7 +46,15 @@ void OpcUa_AccessControl_Configure(UA_ServerConfig *cfg)
         s_logins);
 
     if (r != UA_STATUSCODE_GOOD) {
-        /* If access control setup fails, log it.  In production,
-         * this should be treated as a fatal error. */
+        /* Access control setup failed — the server will run with
+         * the default (unrestricted) policy.  Log this so it is
+         * not silently ignored.  In production, treat as fatal. */
+#if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
+        extern void Log_Print(const char *s, uint16_t len);
+        const char *msg = "WARN: AccessControl setup failed\r\n";
+        Log_Print(msg, (uint16_t)strlen(msg));
+#else
+        fprintf(stderr, "WARN: AccessControl setup failed (0x%08x)\n", (unsigned)r);
+#endif
     }
 }

@@ -72,7 +72,7 @@ int main(void)
     }
 
     printf("OPC UA server ran for 3 seconds; shutting down.\n");
-    UA_Server_run_shutdown(server);
-    UA_Server_delete(server);
+    OpcUaServer_Stop();
+    OpcUaServer_Destroy();
     return 0;
 }

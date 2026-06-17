@@ -235,10 +235,9 @@ static void OpcUa_Log(void *ctx, UA_LogLevel level, UA_LogCategory category,
     }
     UA_String_clear(&formatted);
 #else
-    /* CI build: just print to stdout for debugging. */
+    /* CI build: print to stdout for debugging. */
     vprintf(msg, args);
     printf("\n");
-    (void)msg; (void)args;
 #endif
 }
 
@@ -336,20 +335,20 @@ void vOpcUaServerTask(void *argument)
     UA_StatusCode sr = UA_Server_run_startup(g_opcuaServer);
     if (sr != UA_STATUSCODE_GOOD) {
         g_opcuaRunning = 0;
-    }
-
-    while (g_opcuaRunning) {
-        UA_Server_run_iterate(g_opcuaServer, true);
-        osDelay(OPCUA_TASK_PERIOD_MS);
+    } else {
+        while (g_opcuaRunning) {
+            UA_Server_run_iterate(g_opcuaServer, true);
+            osDelay(OPCUA_TASK_PERIOD_MS);
 #if defined(OPCUA_EMBEDDED_TARGET) && (OPCUA_EMBEDDED_TARGET == 1)
-        /* Kick the independent watchdog so a deadlock in open62541
-         * triggers a hardware reset rather than an indefinite hang. */
-        extern IWDG_HandleTypeDef hiwdg;
-        HAL_IWDG_Refresh(&hiwdg);
+            /* Kick the independent watchdog so a deadlock in open62541
+             * triggers a hardware reset rather than an indefinite hang. */
+            extern IWDG_HandleTypeDef hiwdg;
+            HAL_IWDG_Refresh(&hiwdg);
 #endif
+        }
+        UA_Server_run_shutdown(g_opcuaServer);
     }
 
-    UA_Server_run_shutdown(g_opcuaServer);
     UA_Server_delete(g_opcuaServer);
     g_opcuaServer = NULL;
     /* Do NOT call osThreadTerminate(self) — just return.  The CMSIS-RTOS2
@@ -360,6 +359,15 @@ void vOpcUaServerTask(void *argument)
 void OpcUaServer_Stop(void)
 {
     g_opcuaRunning = 0;
+}
+
+void OpcUaServer_Destroy(void)
+{
+    if (g_opcuaServer) {
+        UA_Server_run_shutdown(g_opcuaServer);
+        UA_Server_delete(g_opcuaServer);
+        g_opcuaServer = NULL;
+    }
 }
 
 void *OpcUaServer_GetHandle(void)
